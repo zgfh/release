@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -99,6 +99,19 @@ type FakeRepository struct {
 		result1 []*git.Remote
 		result2 error
 	}
+	RevParseStub        func(string) (string, error)
+	revParseMutex       sync.RWMutex
+	revParseArgsForCall []struct {
+		arg1 string
+	}
+	revParseReturns struct {
+		result1 string
+		result2 error
+	}
+	revParseReturnsOnCall map[int]struct {
+		result1 string
+		result2 error
+	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
@@ -108,15 +121,16 @@ func (fake *FakeRepository) CurrentBranch() (string, error) {
 	ret, specificReturn := fake.currentBranchReturnsOnCall[len(fake.currentBranchArgsForCall)]
 	fake.currentBranchArgsForCall = append(fake.currentBranchArgsForCall, struct {
 	}{})
+	stub := fake.CurrentBranchStub
+	fakeReturns := fake.currentBranchReturns
 	fake.recordInvocation("CurrentBranch", []interface{}{})
 	fake.currentBranchMutex.Unlock()
-	if fake.CurrentBranchStub != nil {
-		return fake.CurrentBranchStub()
+	if stub != nil {
+		return stub()
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
 	}
-	fakeReturns := fake.currentBranchReturns
 	return fakeReturns.result1, fakeReturns.result2
 }
 
@@ -164,15 +178,16 @@ func (fake *FakeRepository) Describe(arg1 *git.DescribeOptions) (string, error) 
 	fake.describeArgsForCall = append(fake.describeArgsForCall, struct {
 		arg1 *git.DescribeOptions
 	}{arg1})
+	stub := fake.DescribeStub
+	fakeReturns := fake.describeReturns
 	fake.recordInvocation("Describe", []interface{}{arg1})
 	fake.describeMutex.Unlock()
-	if fake.DescribeStub != nil {
-		return fake.DescribeStub(arg1)
+	if stub != nil {
+		return stub(arg1)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
 	}
-	fakeReturns := fake.describeReturns
 	return fakeReturns.result1, fakeReturns.result2
 }
 
@@ -226,15 +241,16 @@ func (fake *FakeRepository) Head() (string, error) {
 	ret, specificReturn := fake.headReturnsOnCall[len(fake.headArgsForCall)]
 	fake.headArgsForCall = append(fake.headArgsForCall, struct {
 	}{})
+	stub := fake.HeadStub
+	fakeReturns := fake.headReturns
 	fake.recordInvocation("Head", []interface{}{})
 	fake.headMutex.Unlock()
-	if fake.HeadStub != nil {
-		return fake.HeadStub()
+	if stub != nil {
+		return stub()
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
 	}
-	fakeReturns := fake.headReturns
 	return fakeReturns.result1, fakeReturns.result2
 }
 
@@ -281,15 +297,16 @@ func (fake *FakeRepository) IsDirty() (bool, error) {
 	ret, specificReturn := fake.isDirtyReturnsOnCall[len(fake.isDirtyArgsForCall)]
 	fake.isDirtyArgsForCall = append(fake.isDirtyArgsForCall, struct {
 	}{})
+	stub := fake.IsDirtyStub
+	fakeReturns := fake.isDirtyReturns
 	fake.recordInvocation("IsDirty", []interface{}{})
 	fake.isDirtyMutex.Unlock()
-	if fake.IsDirtyStub != nil {
-		return fake.IsDirtyStub()
+	if stub != nil {
+		return stub()
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
 	}
-	fakeReturns := fake.isDirtyReturns
 	return fakeReturns.result1, fakeReturns.result2
 }
 
@@ -337,15 +354,16 @@ func (fake *FakeRepository) LsRemote(arg1 ...string) (string, error) {
 	fake.lsRemoteArgsForCall = append(fake.lsRemoteArgsForCall, struct {
 		arg1 []string
 	}{arg1})
+	stub := fake.LsRemoteStub
+	fakeReturns := fake.lsRemoteReturns
 	fake.recordInvocation("LsRemote", []interface{}{arg1})
 	fake.lsRemoteMutex.Unlock()
-	if fake.LsRemoteStub != nil {
-		return fake.LsRemoteStub(arg1...)
+	if stub != nil {
+		return stub(arg1...)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
 	}
-	fakeReturns := fake.lsRemoteReturns
 	return fakeReturns.result1, fakeReturns.result2
 }
 
@@ -399,15 +417,16 @@ func (fake *FakeRepository) Remotes() ([]*git.Remote, error) {
 	ret, specificReturn := fake.remotesReturnsOnCall[len(fake.remotesArgsForCall)]
 	fake.remotesArgsForCall = append(fake.remotesArgsForCall, struct {
 	}{})
+	stub := fake.RemotesStub
+	fakeReturns := fake.remotesReturns
 	fake.recordInvocation("Remotes", []interface{}{})
 	fake.remotesMutex.Unlock()
-	if fake.RemotesStub != nil {
-		return fake.RemotesStub()
+	if stub != nil {
+		return stub()
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
 	}
-	fakeReturns := fake.remotesReturns
 	return fakeReturns.result1, fakeReturns.result2
 }
 
@@ -449,6 +468,70 @@ func (fake *FakeRepository) RemotesReturnsOnCall(i int, result1 []*git.Remote, r
 	}{result1, result2}
 }
 
+func (fake *FakeRepository) RevParse(arg1 string) (string, error) {
+	fake.revParseMutex.Lock()
+	ret, specificReturn := fake.revParseReturnsOnCall[len(fake.revParseArgsForCall)]
+	fake.revParseArgsForCall = append(fake.revParseArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.RevParseStub
+	fakeReturns := fake.revParseReturns
+	fake.recordInvocation("RevParse", []interface{}{arg1})
+	fake.revParseMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeRepository) RevParseCallCount() int {
+	fake.revParseMutex.RLock()
+	defer fake.revParseMutex.RUnlock()
+	return len(fake.revParseArgsForCall)
+}
+
+func (fake *FakeRepository) RevParseCalls(stub func(string) (string, error)) {
+	fake.revParseMutex.Lock()
+	defer fake.revParseMutex.Unlock()
+	fake.RevParseStub = stub
+}
+
+func (fake *FakeRepository) RevParseArgsForCall(i int) string {
+	fake.revParseMutex.RLock()
+	defer fake.revParseMutex.RUnlock()
+	argsForCall := fake.revParseArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeRepository) RevParseReturns(result1 string, result2 error) {
+	fake.revParseMutex.Lock()
+	defer fake.revParseMutex.Unlock()
+	fake.RevParseStub = nil
+	fake.revParseReturns = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeRepository) RevParseReturnsOnCall(i int, result1 string, result2 error) {
+	fake.revParseMutex.Lock()
+	defer fake.revParseMutex.Unlock()
+	fake.RevParseStub = nil
+	if fake.revParseReturnsOnCall == nil {
+		fake.revParseReturnsOnCall = make(map[int]struct {
+			result1 string
+			result2 error
+		})
+	}
+	fake.revParseReturnsOnCall[i] = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeRepository) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
@@ -464,6 +547,8 @@ func (fake *FakeRepository) Invocations() map[string][][]interface{} {
 	defer fake.lsRemoteMutex.RUnlock()
 	fake.remotesMutex.RLock()
 	defer fake.remotesMutex.RUnlock()
+	fake.revParseMutex.RLock()
+	defer fake.revParseMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

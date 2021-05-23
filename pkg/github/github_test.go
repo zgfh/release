@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"testing"
 
-	gogithub "github.com/google/go-github/v29/github"
+	gogithub "github.com/google/go-github/v33/github"
 	"github.com/stretchr/testify/require"
 
 	"k8s.io/release/pkg/git"
@@ -68,7 +68,7 @@ func TestLatestGitHubTagsPerBranchSuccessAlphaAfterMinor(t *testing.T) {
 	// Then
 	require.Nil(t, err)
 	require.Len(t, res, 2)
-	require.Equal(t, tag1, res[git.Master])
+	require.Equal(t, tag1, res[git.DefaultBranch])
 	require.Equal(t, tag2, res["release-1.18"])
 }
 
@@ -92,7 +92,7 @@ func TestLatestGitHubTagsPerBranchMultiplePages(t *testing.T) {
 	// Then
 	require.Nil(t, err)
 	require.Len(t, res, 2)
-	require.Equal(t, tag1, res[git.Master])
+	require.Equal(t, tag1, res[git.DefaultBranch])
 	require.Equal(t, tag2, res["release-1.18"])
 }
 
@@ -126,7 +126,7 @@ func TestLatestGitHubTagsPerBranchSuccessMultipleForSameBranch(t *testing.T) {
 	// Then
 	require.Nil(t, err)
 	require.Len(t, res, 4)
-	require.Equal(t, tag1, res[git.Master])
+	require.Equal(t, tag1, res[git.DefaultBranch])
 	require.Empty(t, res["release-1.18"])
 	require.Empty(t, res["release-1.17"])
 	require.Equal(t, tag5, res["release-1.16"])
@@ -155,7 +155,7 @@ func TestLatestGitHubTagsPerBranchSuccessPatchReleases(t *testing.T) {
 	// Then
 	require.Nil(t, err)
 	require.Len(t, res, 4)
-	require.Equal(t, tag1, res[git.Master])
+	require.Equal(t, tag1, res[git.DefaultBranch])
 	require.Equal(t, tag1, res["release-1.17"])
 	require.Equal(t, tag2, res["release-1.16"])
 	require.Equal(t, tag3, res["release-1.15"])
@@ -177,7 +177,7 @@ func TestLatestGitHubTagsPerBranchFailedOnList(t *testing.T) {
 
 func TestLatestGitHubTagsPerBranchSkippedNonSemverTag(t *testing.T) {
 	// Given
-	var tag1 = "not a semver tag"
+	tag1 := "not a semver tag"
 	sut, client := newSUT()
 	client.ListTagsReturns([]*gogithub.RepositoryTag{
 		{Name: &tag1},
@@ -281,12 +281,61 @@ func TestCreatePullRequest(t *testing.T) {
 	client.CreatePullRequestReturns(&gogithub.PullRequest{ID: &fakeID}, nil)
 
 	// When
-	pr, err := sut.CreatePullRequest("kubernetes-fake-org", "kubernetes-fake-repo", "master", "user:head-branch", "PR Title", "PR Body")
+	pr, err := sut.CreatePullRequest("kubernetes-fake-org", "kubernetes-fake-repo", git.DefaultBranch, "user:head-branch", "PR Title", "PR Body")
 
 	// Then
 	require.Nil(t, err)
 	require.NotNil(t, pr, nil)
 	require.Equal(t, fakeID, pr.GetID())
+}
+
+func TestGetMilestone(t *testing.T) {
+	sut, client := newSUT()
+	// Given
+	searchTitle := "Target Milestone"
+	otherTitle := "Another Milestone"
+	fakeMstoneID := 9999
+
+	client.ListMilestonesReturns(
+		[]*gogithub.Milestone{
+			{
+				Title: &otherTitle,
+			},
+			{
+				Number: &fakeMstoneID,
+				Title:  &searchTitle,
+			},
+		},
+		&gogithub.Response{NextPage: 0},
+		nil,
+	)
+
+	// When
+	for _, tc := range []struct {
+		Title string
+		Err   bool
+	}{
+		{Title: searchTitle},
+		{Title: "Non existent"},
+		{Title: "", Err: true},
+	} {
+		ms, exists, err := sut.GetMilestone("test", "test", tc.Title)
+
+		// Then
+		if searchTitle == tc.Title {
+			require.True(t, exists)
+			require.Equal(t, fakeMstoneID, ms.GetNumber())
+			require.Equal(t, searchTitle, ms.GetTitle())
+		} else {
+			require.False(t, exists)
+		}
+
+		if tc.Err {
+			require.NotNil(t, err)
+		} else {
+			require.Nil(t, err)
+		}
+	}
 }
 
 func TestGetRepository(t *testing.T) {
@@ -391,7 +440,7 @@ func TestListBranches(t *testing.T) {
 	// Given
 	sut, client := newSUT()
 
-	branch0 := "master"
+	branch0 := git.DefaultBranch
 	branch1 := "myfork"
 	branch2 := "feature-branch"
 
@@ -416,4 +465,39 @@ func TestListBranches(t *testing.T) {
 	require.Nil(t, err)
 	require.Len(t, result, 3)
 	require.Equal(t, result[1].GetName(), branch1)
+}
+
+func TestCreateIssue(t *testing.T) {
+	// Given
+	sut, client := newSUT()
+	var fakeID int = 100000
+	title := "Test Issue"
+	body := "Issue body text"
+	opts := &github.NewIssueOptions{
+		Assignees: []string{"k8s-ci-robot"},
+		Milestone: "v1.21",
+		State:     "open",
+		Labels:    []string{"bug"},
+	}
+	issue := &gogithub.Issue{
+		Number: &fakeID,
+		State:  &opts.State,
+		Title:  &title,
+		Body:   &body,
+	}
+
+	for _, tcErr := range []error{errors.New("Test error"), nil} {
+		// When
+		client.CreateIssueReturns(issue, tcErr)
+		newissue, err := sut.CreateIssue("kubernetes-fake-org", "kubernetes-fake-repo", title, body, opts)
+
+		// Then
+		if tcErr == nil {
+			require.Nil(t, err)
+			require.NotNil(t, newissue)
+			require.Equal(t, fakeID, issue.GetNumber())
+		} else {
+			require.NotNil(t, err)
+		}
+	}
 }

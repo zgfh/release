@@ -21,7 +21,7 @@ import (
 	"testing"
 
 	pb "github.com/GoogleCloudPlatform/testgrid/pb/config"
-	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/proto" // nolint: staticcheck
 	"github.com/stretchr/testify/require"
 
 	"k8s.io/release/pkg/git"
@@ -52,7 +52,7 @@ func TestBlockingTestsSuccess(t *testing.T) {
 	client.GetURLResponseReturns(string(httpRes), nil)
 
 	// When
-	res, err := sut.BlockingTests(git.Master)
+	res, err := sut.BlockingTests(git.DefaultBranch)
 
 	// Then
 	require.Nil(t, err)

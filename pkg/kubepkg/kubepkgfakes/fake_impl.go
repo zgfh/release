@@ -1,5 +1,5 @@
 /*
-Copyright 2019 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,10 +18,10 @@ limitations under the License.
 package kubepkgfakes
 
 import (
-	"os"
+	"io/fs"
 	"sync"
 
-	"github.com/google/go-github/v29/github"
+	"github.com/google/go-github/v33/github"
 	"k8s.io/release/pkg/kubepkg"
 	"k8s.io/release/pkg/release"
 )
@@ -81,12 +81,12 @@ type FakeImpl struct {
 	runSuccessWithWorkDirReturnsOnCall map[int]struct {
 		result1 error
 	}
-	WriteFileStub        func(string, []byte, os.FileMode) error
+	WriteFileStub        func(string, []byte, fs.FileMode) error
 	writeFileMutex       sync.RWMutex
 	writeFileArgsForCall []struct {
 		arg1 string
 		arg2 []byte
-		arg3 os.FileMode
+		arg3 fs.FileMode
 	}
 	writeFileReturns struct {
 		result1 error
@@ -104,15 +104,16 @@ func (fake *FakeImpl) GetKubeVersion(arg1 release.VersionType) (string, error) {
 	fake.getKubeVersionArgsForCall = append(fake.getKubeVersionArgsForCall, struct {
 		arg1 release.VersionType
 	}{arg1})
+	stub := fake.GetKubeVersionStub
+	fakeReturns := fake.getKubeVersionReturns
 	fake.recordInvocation("GetKubeVersion", []interface{}{arg1})
 	fake.getKubeVersionMutex.Unlock()
-	if fake.GetKubeVersionStub != nil {
-		return fake.GetKubeVersionStub(arg1)
+	if stub != nil {
+		return stub(arg1)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
 	}
-	fakeReturns := fake.getKubeVersionReturns
 	return fakeReturns.result1, fakeReturns.result2
 }
 
@@ -167,15 +168,16 @@ func (fake *FakeImpl) ReadFile(arg1 string) ([]byte, error) {
 	fake.readFileArgsForCall = append(fake.readFileArgsForCall, struct {
 		arg1 string
 	}{arg1})
+	stub := fake.ReadFileStub
+	fakeReturns := fake.readFileReturns
 	fake.recordInvocation("ReadFile", []interface{}{arg1})
 	fake.readFileMutex.Unlock()
-	if fake.ReadFileStub != nil {
-		return fake.ReadFileStub(arg1)
+	if stub != nil {
+		return stub(arg1)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
 	}
-	fakeReturns := fake.readFileReturns
 	return fakeReturns.result1, fakeReturns.result2
 }
 
@@ -232,15 +234,16 @@ func (fake *FakeImpl) Releases(arg1 string, arg2 string, arg3 bool) ([]*github.R
 		arg2 string
 		arg3 bool
 	}{arg1, arg2, arg3})
+	stub := fake.ReleasesStub
+	fakeReturns := fake.releasesReturns
 	fake.recordInvocation("Releases", []interface{}{arg1, arg2, arg3})
 	fake.releasesMutex.Unlock()
-	if fake.ReleasesStub != nil {
-		return fake.ReleasesStub(arg1, arg2, arg3)
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
 	}
-	fakeReturns := fake.releasesReturns
 	return fakeReturns.result1, fakeReturns.result2
 }
 
@@ -297,15 +300,16 @@ func (fake *FakeImpl) RunSuccessWithWorkDir(arg1 string, arg2 string, arg3 ...st
 		arg2 string
 		arg3 []string
 	}{arg1, arg2, arg3})
+	stub := fake.RunSuccessWithWorkDirStub
+	fakeReturns := fake.runSuccessWithWorkDirReturns
 	fake.recordInvocation("RunSuccessWithWorkDir", []interface{}{arg1, arg2, arg3})
 	fake.runSuccessWithWorkDirMutex.Unlock()
-	if fake.RunSuccessWithWorkDirStub != nil {
-		return fake.RunSuccessWithWorkDirStub(arg1, arg2, arg3...)
+	if stub != nil {
+		return stub(arg1, arg2, arg3...)
 	}
 	if specificReturn {
 		return ret.result1
 	}
-	fakeReturns := fake.runSuccessWithWorkDirReturns
 	return fakeReturns.result1
 }
 
@@ -351,7 +355,7 @@ func (fake *FakeImpl) RunSuccessWithWorkDirReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) WriteFile(arg1 string, arg2 []byte, arg3 os.FileMode) error {
+func (fake *FakeImpl) WriteFile(arg1 string, arg2 []byte, arg3 fs.FileMode) error {
 	var arg2Copy []byte
 	if arg2 != nil {
 		arg2Copy = make([]byte, len(arg2))
@@ -362,17 +366,18 @@ func (fake *FakeImpl) WriteFile(arg1 string, arg2 []byte, arg3 os.FileMode) erro
 	fake.writeFileArgsForCall = append(fake.writeFileArgsForCall, struct {
 		arg1 string
 		arg2 []byte
-		arg3 os.FileMode
+		arg3 fs.FileMode
 	}{arg1, arg2Copy, arg3})
+	stub := fake.WriteFileStub
+	fakeReturns := fake.writeFileReturns
 	fake.recordInvocation("WriteFile", []interface{}{arg1, arg2Copy, arg3})
 	fake.writeFileMutex.Unlock()
-	if fake.WriteFileStub != nil {
-		return fake.WriteFileStub(arg1, arg2, arg3)
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
 	}
 	if specificReturn {
 		return ret.result1
 	}
-	fakeReturns := fake.writeFileReturns
 	return fakeReturns.result1
 }
 
@@ -382,13 +387,13 @@ func (fake *FakeImpl) WriteFileCallCount() int {
 	return len(fake.writeFileArgsForCall)
 }
 
-func (fake *FakeImpl) WriteFileCalls(stub func(string, []byte, os.FileMode) error) {
+func (fake *FakeImpl) WriteFileCalls(stub func(string, []byte, fs.FileMode) error) {
 	fake.writeFileMutex.Lock()
 	defer fake.writeFileMutex.Unlock()
 	fake.WriteFileStub = stub
 }
 
-func (fake *FakeImpl) WriteFileArgsForCall(i int) (string, []byte, os.FileMode) {
+func (fake *FakeImpl) WriteFileArgsForCall(i int) (string, []byte, fs.FileMode) {
 	fake.writeFileMutex.RLock()
 	defer fake.writeFileMutex.RUnlock()
 	argsForCall := fake.writeFileArgsForCall[i]

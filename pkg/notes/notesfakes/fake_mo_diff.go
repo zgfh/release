@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -48,15 +48,16 @@ func (fake *FakeMoDiff) Run(arg1 *modiff.Config) (string, error) {
 	fake.runArgsForCall = append(fake.runArgsForCall, struct {
 		arg1 *modiff.Config
 	}{arg1})
+	stub := fake.RunStub
+	fakeReturns := fake.runReturns
 	fake.recordInvocation("Run", []interface{}{arg1})
 	fake.runMutex.Unlock()
-	if fake.RunStub != nil {
-		return fake.RunStub(arg1)
+	if stub != nil {
+		return stub(arg1)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
 	}
-	fakeReturns := fake.runReturns
 	return fakeReturns.result1, fakeReturns.result2
 }
 

@@ -17,13 +17,12 @@ limitations under the License.
 package cmd
 
 import (
-	"os"
-	"path/filepath"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	"k8s.io/release/pkg/log"
+	"sigs.k8s.io/release-utils/log"
 )
 
 const (
@@ -48,8 +47,6 @@ clarifies its purpose.`,
 
 type rootOptions struct {
 	nomock   bool
-	cleanup  bool
-	repoPath string
 	logLevel string
 }
 
@@ -64,10 +61,19 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().BoolVar(&rootOpts.nomock, "nomock", false, "nomock flag")
-	rootCmd.PersistentFlags().BoolVar(&rootOpts.cleanup, "cleanup", false, "cleanup flag")
-	rootCmd.PersistentFlags().StringVar(&rootOpts.repoPath, "repo", filepath.Join(os.TempDir(), "k8s"), "the local path to the repository to be used")
-	rootCmd.PersistentFlags().StringVar(&rootOpts.logLevel, "log-level", "info", "the logging verbosity, either 'panic', 'fatal', 'error', 'warn', 'warning', 'info', 'debug' or 'trace'")
+	rootCmd.PersistentFlags().BoolVar(
+		&rootOpts.nomock,
+		"nomock",
+		false,
+		"run the command to target the production environment",
+	)
+
+	rootCmd.PersistentFlags().StringVar(
+		&rootOpts.logLevel,
+		"log-level",
+		"info",
+		fmt.Sprintf("the logging verbosity, either %s", log.LevelNames()),
+	)
 }
 
 func initLogging(*cobra.Command, []string) error {

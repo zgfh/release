@@ -2,19 +2,21 @@
 
 reviewers:
   - build-image-reviewers
+  - release-engineering-approvers
   - BenTheElder
   - bowei
   - freehan
-  - jingax10
   - mkumatag
   - mrhohn
   - tallclair
 approvers:
   - build-image-approvers
+  - release-engineering-approvers
   - BenTheElder
   - bowei
   - freehan
-  - jingax10
   - mkumatag
   - mrhohn
   - tallclair
+emeritus_approvers:
+  - jingax10

@@ -14,49 +14,55 @@ timeout: 14400s
 secrets:
 - kmsKeyName: projects/k8s-releng-prod/locations/global/keyRings/release/cryptoKeys/encrypt-0
   secretEnv:
-    GITHUB_TOKEN: CiQAIkWjMB659KuB36h8tR5fqD9YIx4iKLXa17pQYX1VLT5l9NESUQBLz1D+hD+CItqy80b5PmXndFhroLJASf9gY8XOVYdhRnDSW2jWT1h7GmETVd345pNTqW4mjaukKspWxOzba10GgGAjEuy2OoAT6yyplbFfNA==
+    GITHUB_TOKEN: CiQAIkWjMMb2OjCHCt1hHer4ZBqqD1Mj7+dfTpvkkuzS64nrGm0SUQBLz1D+4Zwp6te6JByO/zvGpHMhW6/i3BJMRYXtNTkyBGMnZuH+J3gQfhcGL2HXjr75lHaCxF4bxPr45xen5D/Kk1+paL+XpOU3KJIADy7uGQ==
 
 steps:
 - name: gcr.io/cloud-builders/git
   dir: "go/src/k8s.io"
   args:
   - "clone"
-  - "--branch=${_TOOL_BRANCH}"
   - "https://github.com/${_TOOL_ORG}/${_TOOL_REPO}"
 
-- name: k8s.gcr.io/build-image/kube-cross:${_KUBE_CROSS_VERSION}
+- name: gcr.io/cloud-builders/git
+  entrypoint: "bash"
+  dir: "go/src/k8s.io/release"
+  args:
+  - '-c'
+  - |
+    git fetch
+    echo "Checking out ${_TOOL_REF}"
+    git checkout ${_TOOL_REF}
+
+- name: gcr.io/k8s-staging-releng/k8s-cloud-builder:${_KUBE_CROSS_VERSION_LATEST}
   dir: "go/src/k8s.io/release"
   env:
   - "GOPATH=/workspace/go"
   - "GOBIN=/workspace/bin"
-  - "GO111MODULE=on"
-  - "GOPROXY=https://proxy.golang.org"
-  - "GOSUMDB=sum.golang.org"
   args:
   - "./compile-release-tools"
+  - "krel"
 
 - name: gcr.io/k8s-staging-releng/k8s-cloud-builder:${_KUBE_CROSS_VERSION}
-  dir: "go/src/k8s.io/release"
+  dir: "/workspace"
   env:
   - "TOOL_ORG=${_TOOL_ORG}"
   - "TOOL_REPO=${_TOOL_REPO}"
-  - "TOOL_BRANCH=${_TOOL_BRANCH}"
+  - "TOOL_REF=${_TOOL_REF}"
   secretEnv:
   - GITHUB_TOKEN
   args:
-  - "./anago"
-  - "${_RELEASE_BRANCH}"
+  - "bin/krel"
+  - "release"
+  - "--submit=false"
   - "${_NOMOCK}"
-  - "${_BUILDVERSION}"
-  - "--yes"
-  - "--basedir=/workspace"
-  - "--tmpdir=/workspace/tmp"
+  - "--log-level=${_LOG_LEVEL}"
   - "--type=${_TYPE}"
+  - "--branch=${_RELEASE_BRANCH}"
+  - "--build-version=${_BUILDVERSION}"
 
 tags:
 - ${_GCP_USER_TAG}
 - ${_RELEASE_BRANCH}
-- ${_BUILD_POINT}
 - ${_NOMOCK_TAG}
 - RELEASE
 - ${_GIT_TAG}

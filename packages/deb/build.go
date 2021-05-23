@@ -21,7 +21,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -41,7 +41,7 @@ const (
 	ChannelUnstable ChannelType = "unstable"
 	ChannelNightly  ChannelType = "nightly"
 
-	currentCNIVersion  = "0.8.6"
+	currentCNIVersion  = "0.8.7"
 	minimumCNIVersion  = "0.8.6"
 	criToolsVersion    = "1.13.0"
 	pre180kubeadmconf  = "pre-1.8/10-kubeadm.conf"
@@ -131,7 +131,7 @@ func (c cfg) run() error {
 	var w []work
 
 	srcdir := filepath.Join(c.DistroName, c.Package)
-	dstdir, err := ioutil.TempDir(os.TempDir(), "debs")
+	dstdir, err := os.MkdirTemp("", "debs")
 	if err != nil {
 		return err
 	}
@@ -257,7 +257,7 @@ func fetchVersion(url string) (string, error) {
 		return "", err
 	}
 
-	versionBytes, err := ioutil.ReadAll(res.Body)
+	versionBytes, err := io.ReadAll(res.Body)
 	res.Body.Close()
 	if err != nil {
 		return "", err
@@ -371,7 +371,7 @@ func getCNIVersion(v version) (string, error) {
 		return "", err
 	}
 
-	if int(sv.Minor) == 16 {
+	if int(sv.Minor) <= 16 {
 		return minimumCNIVersion, nil
 	}
 

@@ -19,7 +19,7 @@ package notes
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -28,7 +28,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-github/v29/github"
+	"github.com/google/go-github/v33/github"
 	"github.com/sirupsen/logrus"
 	"k8s.io/release/pkg/git"
 	"k8s.io/release/pkg/github/githubfakes"
@@ -36,7 +36,7 @@ import (
 
 func TestMain(m *testing.M) {
 	// logrus, shut up
-	logrus.SetOutput(ioutil.Discard)
+	logrus.SetOutput(io.Discard)
 	os.Exit(m.Run())
 }
 
@@ -370,7 +370,7 @@ func TestGatherNotes(t *testing.T) {
 			resultsChecker: func(t *testing.T, results []*Result) {
 				// there is not much we can check on the Result, as all the fields are
 				// unexported
-				expectedResultSize := 7
+				expectedResultSize := 13
 				if e, a := expectedResultSize, len(results); e != a {
 					t.Errorf("Expected the result to be of size %d, got %d", e, a)
 				}

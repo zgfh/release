@@ -19,39 +19,36 @@ IMAGE ?= $(REGISTRY)/debian-base
 BUILD_IMAGE ?= debian-build
 
 TAG ?= $(shell git describe --tags --always --dirty)
-IMAGE_VERSION ?= v2.1.3
-CONFIG ?= v2
-OS_CODENAME ?= buster
+IMAGE_VERSION ?= buster-v1.6.0
+CONFIG ?= buster
 
 TAR_FILE ?= rootfs.tar
-ARCH?=amd64
+ARCH ?= amd64
 ALL_ARCH = amd64 arm arm64 ppc64le s390x
 
-TEMP_DIR:=$(shell mktemp -d)
-QEMUVERSION=v4.2.0-6
-
-SUDO=$(if $(filter 0,$(shell id -u)),,sudo)
+QEMUVERSION=5.2.0-2
 
 # This option is for running docker manifest command
 export DOCKER_CLI_EXPERIMENTAL := enabled
 
 ifeq ($(ARCH),amd64)
-	BASEIMAGE?=debian:$(OS_CODENAME)-slim
+	BASEIMAGE?=debian:$(CONFIG)-slim
+	QEMUARCH=x86_64
 endif
 ifeq ($(ARCH),arm)
-	BASEIMAGE?=arm32v7/debian:$(OS_CODENAME)-slim
+	BASEIMAGE?=arm32v7/debian:$(CONFIG)-slim
 	QEMUARCH=arm
 endif
 ifeq ($(ARCH),arm64)
-	BASEIMAGE?=arm64v8/debian:$(OS_CODENAME)-slim
+	BASEIMAGE?=arm64v8/debian:$(CONFIG)-slim
 	QEMUARCH=aarch64
 endif
 ifeq ($(ARCH),ppc64le)
-	BASEIMAGE?=ppc64le/debian:$(OS_CODENAME)-slim
+	BASEIMAGE?=ppc64le/debian:$(CONFIG)-slim
 	QEMUARCH=ppc64le
 endif
 ifeq ($(ARCH),s390x)
-	BASEIMAGE?=s390x/debian:$(OS_CODENAME)-slim
+	BASEIMAGE?=s390x/debian:$(CONFIG)-slim
 	QEMUARCH=s390x
 endif
 
@@ -73,42 +70,44 @@ push-manifest:
 	docker manifest push --purge ${IMAGE}:${IMAGE_VERSION}
 
 build: clean
-	cp -r ./$(CONFIG) $(TEMP_DIR)/
-	cat $(CONFIG)/Dockerfile.build \
-		| sed "s|BASEIMAGE|$(BASEIMAGE)|g" \
-		| sed "s|ARCH|$(QEMUARCH)|g" \
-		> $(TEMP_DIR)/$(CONFIG)/Dockerfile.build
+	# Fix possible issues with the local umask
+	umask 0022
 
-ifeq ($(ARCH),amd64)
-	# When building "normally" for amd64, remove the whole line, it has no part in the amd64 image
-	sed "/CROSS_BUILD_/d" $(TEMP_DIR)/$(CONFIG)/Dockerfile.build > $(TEMP_DIR)/$(CONFIG)/Dockerfile.build.tmp
-else
-	# When cross-building, only the placeholder "CROSS_BUILD_" should be removed
-	# Register /usr/bin/qemu-ARCH-static as the handler for non-x86 binaries in the kernel
-	$(SUDO) ../../../third_party/multiarch/qemu-user-static/register/register.sh --reset
-	curl -sSL https://github.com/multiarch/qemu-user-static/releases/download/$(QEMUVERSION)/x86_64_qemu-$(QEMUARCH)-static.tar.gz | tar -xz -C $(TEMP_DIR)/$(CONFIG)
+	# Enable execution of multi-architecture containers
+	docker run --rm --privileged multiarch/qemu-user-static:$(QEMUVERSION) --reset -p yes
+	docker buildx version
+	BUILDER=$(shell docker buildx create --use)
+
+	curl -sSL https://github.com/multiarch/qemu-user-static/releases/download/v$(QEMUVERSION)/x86_64_qemu-$(QEMUARCH)-static.tar.gz | tar -xz -C $(CONFIG)
 	# Ensure we don't get surprised by umask settings
-	chmod 0755 $(TEMP_DIR)/$(CONFIG)/qemu-$(QEMUARCH)-static
-	sed "s/CROSS_BUILD_//g" $(TEMP_DIR)/$(CONFIG)/Dockerfile.build > $(TEMP_DIR)/$(CONFIG)/Dockerfile.build.tmp
-endif
-	mv $(TEMP_DIR)/$(CONFIG)/Dockerfile.build.tmp $(TEMP_DIR)/$(CONFIG)/Dockerfile.build
+	chmod 0755 $(CONFIG)/qemu-$(QEMUARCH)-static
 
-	docker build --pull -t $(BUILD_IMAGE) -f $(TEMP_DIR)/$(CONFIG)/Dockerfile.build $(TEMP_DIR)/$(CONFIG)
+	docker buildx build \
+		--pull \
+		--load \
+		--platform linux/$(ARCH) \
+		--build-arg BASEIMAGE=$(BASEIMAGE) \
+		--build-arg ARCH=$(QEMUARCH) \
+		-t $(BUILD_IMAGE) \
+		-f $(CONFIG)/Dockerfile.build \
+		$(CONFIG)
 	docker create --name $(BUILD_IMAGE) $(BUILD_IMAGE)
-	docker export $(BUILD_IMAGE) > $(TEMP_DIR)/$(CONFIG)/$(TAR_FILE)
-	docker build \
+	docker export $(BUILD_IMAGE) > $(CONFIG)/$(TAR_FILE)
+	docker buildx build \
+		--load \
+		--platform linux/$(ARCH) \
 		-t $(IMAGE)-$(ARCH):$(IMAGE_VERSION) \
 		-t $(IMAGE)-$(ARCH):$(TAG)-$(CONFIG) \
 		-t $(IMAGE)-$(ARCH):latest-$(CONFIG) \
-		-t $(IMAGE)-$(ARCH):latest-$(OS_CODENAME) \
-		$(TEMP_DIR)/$(CONFIG)
-	rm -rf $(TEMP_DIR)
+		$(CONFIG)
+	docker buildx rm $$BUILDER
+	rm $(CONFIG)/qemu-$(QEMUARCH)-static
+	rm $(CONFIG)/rootfs.tar
 
 push: build
 	docker push $(IMAGE)-$(ARCH):$(IMAGE_VERSION)
 	docker push $(IMAGE)-$(ARCH):$(TAG)-$(CONFIG)
 	docker push $(IMAGE)-$(ARCH):latest-$(CONFIG)
-	docker push $(IMAGE)-$(ARCH):latest-$(OS_CODENAME)
 
 clean:
 	docker rmi -f $(IMAGE)-$(ARCH):$(IMAGE_VERSION) || true

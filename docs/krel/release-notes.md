@@ -38,14 +38,21 @@ Before running `krel release-notes` export your GitHub token to \$GITHUB_TOKEN:
 ### Command line flags
 
 ```
-      --create-draft-pr       update the Release Notes draft and create a PR in k/sig-release
-      --create-website-pr     patch the relnotes.k8s.io sources and generate a PR with the changes
-      --dependencies          add dependency report (default true)
-      --draft-repo string     k/sig-release fork used when creating the draft PR (default "sig-release")
-  -h, --help                  help for release-notes
-      --org string            a Github organization hosting the forks of k/sig-release or ksigs/release-notes
-  -t, --tag string            version tag for the notes
-      --website-repo string   ksigs/release-notes fork used when creating the website PR (default "release-notes")
+Flags:
+      --create-draft-pr     update the Release Notes draft and create a PR in k/sig-release
+      --create-website-pr   patch the relnotes.k8s.io sources and generate a PR with the changes
+      --dependencies        add dependency report (default true)
+      --fix                 fix release notes
+      --fork string         the user's fork in the form org/repo. Used to submit Pull Requests for the website and draft
+  -h, --help                help for release-notes
+      --list-v2             enable experimental implementation to list commits (ListReleaseNotesV2)
+  -m, --maps-from strings   specify a location to recursively look for release notes *.y[a]ml file mappings
+      --repo string         the local path to the repository to be used (default "/tmp/k8s")
+  -t, --tag string          version tag for the notes
+
+Global Flags:
+      --log-level string   the logging verbosity, either 'panic', 'fatal', 'error', 'warning', 'info', 'debug', 'trace' (default "info")
+      --nomock             run the command to target the production environment
 ```
 
 ### Examples
@@ -56,7 +63,7 @@ Before running `krel release-notes` export your GitHub token to \$GITHUB_TOKEN:
 
 This invocation will generate the Release Notes Draft [published in sig-release](https://github.com/kubernetes/sig-release/blob/master/releases/release-1.19/release-notes-draft.md).
 It will generate the draft for the current branch, starting from the first RC of the previous
-minor Kubernets release. For example, if you are generating the draft for `v1.19.0-beta.1`, `krel`
+minor Kubernetes release. For example, if you are generating the draft for `v1.19.0-beta.1`, `krel`
 will generate the release notes draft starting from `v1.18.0-rc.1`.
 
 The draft will be written into your fork of
@@ -65,38 +72,39 @@ clone k/sig-release, create a branch, write the draft markdown and then push the
 back to your fork in GitHub. Finally __it will create a pull request__ on your behalf.
 
 To update the Release Notes Draft, run `krel release-notes` with `--create-draft-pr` and set 
-`--org` to your GitHub user (the organization that owns your fork o k/sig-release):
+`--fork` to your GitHub user (the organization that owns your fork of k/sig-release):
 
 ```bash
-krel release-notes --create-draft-pr --org=kubefriend --tag v1.19.0-beta.1 
+krel release-notes --create-draft-pr --fork=kubefriend --tag v1.19.0-beta.1 
 ```
 
 The `--tag` flag is optional, it will default to the latest minor version if it is not defined.
 If, for any reason, your fork of k/sig-release is not named _sig-release_ you can set the name
-of your repository with `--draft-repo`.
+of your repository by specifying the full repo slug `--fork=myorg/myrepo`.
 
 #### Update the relnotes.k8s.io website
 
-The subcommand can also generate the notes and modify the necessary files to update th
+The subcommand can also generate the notes and modify the necessary files to update the
 [release notes website](https://relnotes.k8s.io/). This invocation will clone the
 [release-notes repo](https://github.com/kubernetes-sigs/release-notes) and add your fork as
 a remote (kubefriend/release-notes). It will then create a feature branch to commit the notes
 up to the tag you have defined and update the website files. If successful, it will push the
-changes to your GitHub repository (defined by the `--org` flag) and create a pull request:
+changes to your GitHub repository (defined by the `--fork` flag) and create a pull request:
 
 ```bash
-krel release-notes --create-website-pr --org=kubefriend --tag v1.19.0-beta.1 
+krel release-notes --create-website-pr --fork=kubefriend --tag v1.19.0-beta.1 
 ```
 
 As with `--create-draft-pr`, `--tag` is optional and will default to the latest release.
-You can override the name of your fork of kubernetes-sigs/release-notes with
-`--org` and `--website-repo`.
+You can override the name of your fork of kubernetes-sigs/release-notes by specifying
+the full repository slug: `--fork=myorg/myreponame`.
 
 ### Usage notes
 
 You can run `--create-draft-pr` and `--create-website-pr` in the same invocation of krel.
-Note that `krel` will use the same GitHub organization (`--org`) to get the forks of
-k-sigs/relese-notes and  k/sig release when doing so.
+Note that `krel` will use the same GitHub organization (`--fork`) to get the forks of
+k-sigs/relese-notes and  k/sig release when doing so. Note that you cannot override the
+name of the repositories when generating both PRs in the same invacation. 
 
 ## Important notes and issues
 

@@ -17,13 +17,15 @@ limitations under the License.
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"k8s.io/release/pkg/kubepkg"
 	"k8s.io/release/pkg/kubepkg/options"
-	"k8s.io/release/pkg/log"
+	"sigs.k8s.io/release-utils/log"
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -131,7 +133,7 @@ func init() {
 		&logLevel,
 		"log-level",
 		"info",
-		"the logging verbosity, either 'panic', 'fatal', 'error', 'warn', 'warning', 'info', 'debug' or 'trace'",
+		fmt.Sprintf("the logging verbosity, either %s", log.LevelNames()),
 	)
 }
 

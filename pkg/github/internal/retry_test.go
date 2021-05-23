@@ -18,19 +18,19 @@ package internal_test
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/google/go-github/v29/github"
+	"github.com/google/go-github/v33/github"
 	"github.com/sirupsen/logrus"
 	"k8s.io/release/pkg/github/internal"
 )
 
 func TestMain(m *testing.M) {
 	// logrus, shut up
-	logrus.SetOutput(ioutil.Discard)
+	logrus.SetOutput(io.Discard)
 	os.Exit(m.Run())
 }
 

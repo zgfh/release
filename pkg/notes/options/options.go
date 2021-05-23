@@ -30,6 +30,12 @@ import (
 // Options is the global options structure which can be used to build release
 // notes generator options
 type Options struct {
+	// GithubBaseURL specifies the Github base URL.
+	GithubBaseURL string
+
+	// GithubUploadURL specifies the Github upload URL.
+	GithubUploadURL string
+
 	// GithubOrg specifies the GitHub organization from which will be
 	// cloned/pulled if Pull is true.
 	GithubOrg string
@@ -61,11 +67,6 @@ type Options struct {
 	// EndRev can be used to set the release notes end revision to any
 	// valid git revision. Should not be used together with EndSHA.
 	EndRev string
-
-	// ReleaseVersion is the version of the release. This option is just passed
-	// through into the resulting ReleaseNote struct for identifying releases
-	// on JSON output.
-	ReleaseVersion string
 
 	// Format specifies the format of the release notes. Can be either
 	// `json` or `markdown`.
@@ -103,6 +104,9 @@ type Options struct {
 	// If true, then the release notes generator will print messages in debug
 	// log level
 	Debug bool
+
+	// EXPERIMENTAL: Feature flag for using v2 implementation to list commits
+	ListReleaseNotesV2 bool
 
 	// RecordDir specifies the directory for API call recordings. Cannot be
 	// used together with ReplayDir.
@@ -142,13 +146,14 @@ const (
 // New creates a new Options instance with the default values
 func New() *Options {
 	return &Options{
-		DiscoverMode: RevisionDiscoveryModeNONE,
-		GithubOrg:    git.DefaultGithubOrg,
-		GithubRepo:   git.DefaultGithubRepo,
-		Format:       FormatMarkdown,
-		GoTemplate:   GoTemplateDefault,
-		Pull:         true,
-		gitCloneFn:   git.CloneOrOpenGitHubRepo,
+		DiscoverMode:       RevisionDiscoveryModeNONE,
+		GithubOrg:          git.DefaultGithubOrg,
+		GithubRepo:         git.DefaultGithubRepo,
+		Format:             FormatMarkdown,
+		GoTemplate:         GoTemplateDefault,
+		Pull:               true,
+		gitCloneFn:         git.CloneOrOpenGitHubRepo,
+		MapProviderStrings: []string{},
 	}
 }
 
@@ -206,7 +211,7 @@ func (o *Options) ValidateAndFinish() (err error) {
 			return err
 		}
 		if o.StartRev != "" && o.StartSHA == "" {
-			sha, err := repo.RevParse(o.StartRev)
+			sha, err := repo.RevParseTag(o.StartRev)
 			if err != nil {
 				return errors.Wrapf(err, "resolving %s", o.StartRev)
 			}
@@ -214,7 +219,7 @@ func (o *Options) ValidateAndFinish() (err error) {
 			o.StartSHA = sha
 		}
 		if o.EndRev != "" && o.EndSHA == "" {
-			sha, err := repo.RevParse(o.EndRev)
+			sha, err := repo.RevParseTag(o.EndRev)
 			if err != nil {
 				return errors.Wrapf(err, "resolving %s", o.EndRev)
 			}
@@ -229,6 +234,11 @@ func (o *Options) ValidateAndFinish() (err error) {
 		if err := os.MkdirAll(o.RecordDir, os.FileMode(0755)); err != nil {
 			return err
 		}
+	}
+
+	// Set GithubBaseURL to https://github.com if it is unset.
+	if o.GithubBaseURL == "" {
+		o.GithubBaseURL = github.GitHubURL
 	}
 
 	if err := o.checkFormatOptions(); err != nil {
@@ -330,8 +340,14 @@ func (o *Options) Client() (github.Client, error) {
 		return github.NewReplayer(o.ReplayDir), nil
 	}
 
+	var gh *github.GitHub
+	var err error
 	// Create a real GitHub API client
-	gh, err := github.NewWithToken(o.githubToken)
+	if o.GithubBaseURL != "" && o.GithubUploadURL != "" {
+		gh, err = github.NewEnterpriseWithToken(o.GithubBaseURL, o.GithubUploadURL, o.githubToken)
+	} else {
+		gh, err = github.NewWithToken(o.githubToken)
+	}
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to create GitHub client")
 	}

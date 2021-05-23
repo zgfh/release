@@ -2,35 +2,30 @@
 
 aliases:
   sig-release-leads:
-    - alejandrox1
-    - justaugustus
-    - saschagrunert
-    - tpepper
+    - hasheddan # SIG Technical Lead
+    - jeremyrickard # SIG Technical Lead
+    - justaugustus # SIG Chair
+    - saschagrunert # SIG Chair
   release-engineering-approvers:
-    - calebamiles # subproject owner
-    - dougm # Release Manager
-    - feiskyer # Release Manager
-    - hoegaarden # Release Manager
-    - idealhack # Release Manager
-    - justaugustus # subproject owner / Release Manager
-    - tpepper # subproject owner / Release Manager
-  release-engineering-reviewers:
     - cpanato # Release Manager
-    - hasheddan # Release Manager
+    - hasheddan # subproject owner / Release Manager
+    - puerco # Release Manager
+    - saschagrunert # subproject owner / Release Manager
+    - justaugustus # subproject owner / Release Manager
+    - xmudrii # Release Manager
+  release-engineering-reviewers:
+    - ameukam # Release Manager Associate
     - jimangel # Release Manager Associate
     - markyjackson-taulia # Release Manager Associate
-    - saschagrunert # Release Manager
+    - mkorbi # Release Manager Associate
+    - onlydole # Release Manager Associate
     - sethmccombs # Release Manager Associate
     - verolop # Release Manager Associate
-    - xmudrii # Release Manager Associate
+    - wilsonehusin # Release Manager Associate
   build-admins:
-    - aleksandra-malinowska
     - amwat
     - BenTheElder
-    - listx
     - MushuEE
-    - ps882
-    - sumitranr
     - spiffxp
   build-image-approvers:
     - BenTheElder
@@ -38,26 +33,34 @@ aliases:
     - dims
     - justaugustus
     - listx
-  build-image-reviewers:
-    - BenTheElder
-    - cblecker
-    - dims
-    - justaugustus
-    - listx
   krel-approvers:
+    - cpanato
     - hasheddan
-    - hoegaarden
-    - justaugustus
+    - puerco
     - saschagrunert
+    - xmudrii
   krel-reviewers:
+    - cpanato
     - hasheddan
-    - hoegaarden
+    - puerco
+    - saschagrunert
+    - xmudrii
+  promo-tools-approvers:
+    - justaugustus
+  promo-tools-reviewers:
+    - hasheddan
     - justaugustus
     - saschagrunert
   release-notes-approvers:
-    - jeefy
-    - saschagrunert
-  release-notes-reviewers:
-    - jeefy
     - puerco
     - saschagrunert
+  release-notes-reviewers:
+    - puerco
+    - saschagrunert
+    - wilsonehusin
+  vulndash-approvers:
+    - cpanato
+    - justaugustus
+  vulndash-reviewers:
+    - cpanato
+    - justaugustus

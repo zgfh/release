@@ -18,10 +18,10 @@ package build
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,9 +34,11 @@ import (
 	"google.golang.org/api/cloudbuild/v1"
 	"google.golang.org/api/option"
 
-	"k8s.io/release/pkg/command"
 	"k8s.io/release/pkg/gcp"
+	"k8s.io/release/pkg/object"
 	"k8s.io/release/pkg/release"
+	"sigs.k8s.io/release-utils/command"
+	"sigs.k8s.io/release-utils/tar"
 	"sigs.k8s.io/yaml"
 )
 
@@ -49,6 +51,7 @@ const (
 
 // TODO: Pull some of these options in cmd/gcbuilder, so they don't have to be public.
 type Options struct {
+	objStore       object.Store
 	BuildDir       string
 	ConfigDir      string
 	CloudbuildFile string
@@ -61,6 +64,15 @@ type Options struct {
 	DiskSize       string
 	Variant        string
 	EnvPassthrough string
+}
+
+// NewDefaultOptions returns a new default `*Options` instance.
+func NewDefaultOptions() *Options {
+	return &Options{
+		objStore:       object.NewGCS(),
+		Project:        release.DefaultKubernetesStagingProject,
+		CloudbuildFile: DefaultCloudbuildFile,
+	}
 }
 
 func PrepareBuilds(o *Options) error {
@@ -78,7 +90,7 @@ func PrepareBuilds(o *Options) error {
 		o.BuildDir = o.ConfigDir
 	}
 
-	logrus.Infof("Build directory: %s\n", o.BuildDir)
+	logrus.Infof("Build directory: %s", o.BuildDir)
 
 	// Canonicalize the config directory to be an absolute path.
 	// As we're about to cd into the build directory, we need a consistent way to reference the config files
@@ -96,9 +108,9 @@ func PrepareBuilds(o *Options) error {
 		return errors.Wrapf(configDirErr, "could not validate config directory")
 	}
 
-	logrus.Infof("Config directory: %s\n", o.ConfigDir)
+	logrus.Infof("Config directory: %s", o.ConfigDir)
 
-	logrus.Infof("Changing to build directory: %s\n", o.BuildDir)
+	logrus.Infof("Changing to build directory: %s", o.BuildDir)
 	if err := os.Chdir(o.BuildDir); err != nil {
 		return errors.Wrapf(err, "failed to chdir to build directory (%s)", o.BuildDir)
 	}
@@ -129,7 +141,7 @@ func (o *Options) ValidateConfigDir() error {
 }
 
 func (o *Options) uploadBuildDir(targetBucket string) (string, error) {
-	f, err := ioutil.TempFile("", "")
+	f, err := os.CreateTemp("", "")
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to create temp file")
 	}
@@ -138,29 +150,18 @@ func (o *Options) uploadBuildDir(targetBucket string) (string, error) {
 	defer os.Remove(name)
 
 	logrus.Infof("Creating source tarball at %s...", name)
-	tarCmdErr := command.Execute(
-		gcp.TarExecutable,
-		"--exclude",
-		".git",
-		"-czf",
-		name,
-		".",
-	)
-	if tarCmdErr != nil {
-		return "", errors.Wrapf(err, "failed to tar files")
+	if err := tar.Compress(name, ".", regexp.MustCompile(".git")); err != nil {
+		return "", errors.Wrap(err, "create tarball")
 	}
 
 	u := uuid.New()
 	uploaded := fmt.Sprintf("%s/%s.tgz", targetBucket, u.String())
 	logrus.Infof("Uploading %s to %s...", name, uploaded)
-	cpErr := command.Execute(
-		gcp.GSUtilExecutable,
-		"cp",
+	if err := o.objStore.CopyToRemote(
 		name,
 		uploaded,
-	)
-	if cpErr != nil {
-		return "", errors.Wrapf(err, "failed to upload files")
+	); err != nil {
+		return "", errors.Wrap(err, "upload files to GCS")
 	}
 
 	return uploaded, nil
@@ -241,7 +242,6 @@ func RunSingleJob(o *Options, jobName, uploaded, version string, subs map[string
 	if o.LogDir != "" {
 		p := path.Join(o.LogDir, strings.ReplaceAll(jobName, "/", "-")+".log")
 		f, err := os.Create(p)
-
 		if err != nil {
 			return errors.Wrapf(err, "couldn't create %s", p)
 		}
@@ -250,6 +250,7 @@ func RunSingleJob(o *Options, jobName, uploaded, version string, subs map[string
 		cmd.AddWriter(f)
 	}
 
+	logrus.Infof("cloudbuild command to send to gcp: %s", cmd.String())
 	if err := cmd.RunSuccess(); err != nil {
 		return errors.Wrapf(err, "error running %s", cmd.String())
 	}
@@ -260,7 +261,7 @@ func RunSingleJob(o *Options, jobName, uploaded, version string, subs map[string
 type variants map[string]map[string]string
 
 func getVariants(o *Options) (variants, error) {
-	content, err := ioutil.ReadFile(path.Join(o.ConfigDir, "variants.yaml"))
+	content, err := os.ReadFile(path.Join(o.ConfigDir, "variants.yaml"))
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return nil, errors.Wrapf(err, "failed to load variants.yaml")

@@ -28,13 +28,20 @@ krel has several subcommands that perform various tasks during the release lifec
 
 ### Available Commands:
 
-| Subcommand                          | Description                                                                 |
-| ----------------------------------- | --------------------------------------------------------------------------- |
-| [changelog](changelog.md)           | Automate the lifecycle of CHANGELOG-x.y.{md,html} files in a k/k repository |
-| [ff](ff.md)                         | Fast forward a Kubernetes release branch                                    |
-| [gcbmgr](gcbmgr.md)                 | Submit Kubernetes staging and release jobs to Google Cloud Build            |
-| [push](push.md)                     | Push Kubernetes release artifacts to Google Cloud Storage (GCS)             |
-| [release-notes](release-notes.md)   | The subcommand of choice for the Release Notes subteam of SIG Release       |
+| Subcommand                          | Description                                                                                 |
+| ----------------------------------- | --------------------------------------------------------------------------------------------|
+| announce                            | Build and announce Kubernetes releases                                                      |
+| [changelog](changelog.md)           | Automate the lifecycle of CHANGELOG-x.y.{md,html} files in a k/k repository                 |
+| ci-build                            | Build Kubernetes in CI and push release artifacts to Google Cloud Storage (GCS)             |
+| cve                                 | Add and edit CVE information                                                                |
+| [ff](ff.md)                         | Fast forward a Kubernetes release branch                                                    |
+| history                             | Run history to build a list of commands that ran when cutting a specific Kubernetes release |
+| promote-images                      | Starts an image promotion for a tag of kubernetes images                                    |
+| [push](push.md)                     | Push Kubernetes release artifacts to Google Cloud Storage (GCS)                             |
+| release                             | Release a staged Kubernetes version                                                         |
+| [release-notes](release-notes.md)   | The subcommand of choice for the Release Notes subteam of SIG Release                       |
+| stage                               | Stage a new Kubernetes version                                                              |
+| testgridshot                        | Take a screenshot of the testgrid dashboards                                                |
 
 ## Important Notes
 

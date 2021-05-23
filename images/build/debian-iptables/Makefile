@@ -18,17 +18,19 @@ REGISTRY?="gcr.io/k8s-staging-build-image"
 IMAGE=$(REGISTRY)/debian-iptables
 
 TAG ?= $(shell git describe --tags --always --dirty)
-IMAGE_VERSION ?= v12.1.2
-CONFIG ?= v2
-DEBIAN_BASE_VERSION ?= v2.1.3
-OS_CODENAME ?= buster
+IMAGE_VERSION ?= buster-v1.6.0
+CONFIG ?= buster
+DEBIAN_BASE_VERSION ?= buster-v1.6.0
 
 ARCH?=amd64
 ALL_ARCH = amd64 arm arm64 ppc64le s390x
-TEMP_DIR:=$(shell mktemp -d)
 
 BASE_REGISTRY?=k8s.gcr.io/build-image
 BASEIMAGE?=$(BASE_REGISTRY)/debian-base-$(ARCH):$(DEBIAN_BASE_VERSION)
+
+# Build args
+IPTABLES_VERSION ?= 1.8.5
+QEMUVERSION=5.2.0-2
 
 # This option is for running docker manifest command
 export DOCKER_CLI_EXPERIMENTAL := enabled
@@ -36,27 +38,29 @@ export DOCKER_CLI_EXPERIMENTAL := enabled
 SUDO=$(if $(filter 0,$(shell id -u)),,sudo)
 
 build:
-	cp -r ./$(CONFIG) $(TEMP_DIR)/
-	cd $(TEMP_DIR)/$(CONFIG) && sed -i "s|BASEIMAGE|$(BASEIMAGE)|g" Dockerfile
+	# Fix possible issues with the local umask
+	umask 0022
 
-ifneq ($(ARCH),amd64)
-	# Register /usr/bin/qemu-ARCH-static as the handler for non-x86 binaries in the kernel
-	$(SUDO) ../../../third_party/multiarch/qemu-user-static/register/register.sh --reset
-endif
-
-	docker build \
+	# Enable execution of multi-architecture containers
+	docker run --rm --privileged multiarch/qemu-user-static:$(QEMUVERSION) --reset -p yes
+	docker buildx version
+	BUILDER=$(shell docker buildx create --use)
+	docker buildx build \
 		--pull \
+		--load \
+		--platform linux/$(ARCH) \
 		-t $(IMAGE)-$(ARCH):$(IMAGE_VERSION) \
 		-t $(IMAGE)-$(ARCH):$(TAG)-$(CONFIG) \
 		-t $(IMAGE)-$(ARCH):latest-$(CONFIG) \
-		-t $(IMAGE)-$(ARCH):latest-$(OS_CODENAME) \
-		$(TEMP_DIR)/$(CONFIG)
+		--build-arg=IPTABLES_VERSION=$(IPTABLES_VERSION) \
+		--build-arg=BASEIMAGE=$(BASEIMAGE) \
+		$(CONFIG)
+	docker buildx rm $$BUILDER
 
 push: build
 	docker push $(IMAGE)-$(ARCH):$(IMAGE_VERSION)
 	docker push $(IMAGE)-$(ARCH):$(TAG)-$(CONFIG)
 	docker push $(IMAGE)-$(ARCH):latest-$(CONFIG)
-	docker push $(IMAGE)-$(ARCH):latest-$(OS_CODENAME)
 
 sub-build-%:
 	$(MAKE) ARCH=$* build

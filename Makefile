@@ -33,30 +33,42 @@ verify-published-rpms: ## Ensure rpms have been published
 
 ##@ Verify
 
-.PHONY: verify verify-shellcheck
+.PHONY: verify verify-boilerplate verify-build verify-dependencies verify-golangci-lint verify-go-mod verify-shellcheck
 
 # TODO: Uncomment verify-shellcheck once we finish shellchecking the repo.
 #       ref: https://github.com/kubernetes/release/issues/726
-verify: #verify-shellcheck ## Runs verification scripts to ensure correct execution
-	@echo consider make verify-bazel as well
+verify: release-tools verify-boilerplate verify-build verify-dependencies verify-golangci-lint verify-go-mod #verify-shellcheck ## Runs verification scripts to ensure correct execution
 
-verify-shellcheck: ## Runs shellcheck
-	./hack/verify-shellcheck.sh
+verify-boilerplate: ## Runs the file header check
+	./hack/verify-boilerplate.sh
+
+verify-build: ## Builds the project for a chosen set of platforms
+	./hack/verify-build.sh
+
+verify-dependencies: ## Runs zeitgeist to verify dependency versions
+	./hack/verify-dependencies.sh
+
+verify-go-mod: ## Runs the go module linter
+	./hack/verify-go-mod.sh
 
 verify-golangci-lint: ## Runs all golang linters
 	./hack/verify-golangci-lint.sh
 
-verify-bazel:
-	bazel test //...
+verify-shellcheck: ## Runs shellcheck
+	./hack/verify-shellcheck.sh
 
 ##@ Tests
 
 .PHONY: test
-test: test-go test-sh ## Runs unit tests to ensure correct execution
+test: test-go-unit test-sh ## Runs unit tests to ensure correct execution
 
-.PHONY: test-go
-test-go: ## Runs all golang tests
+.PHONY: test-go-unit
+test-go-unit: ## Runs golang unit tests
 	./hack/test-go.sh
+
+.PHONY: test-go-integration
+test-go-integration: ## Runs golang integration tests
+	./hack/test-go-integration.sh
 
 .PHONY: test-sh
 test-sh: ## Runs all shellscript tests
@@ -70,17 +82,6 @@ RELEASE_TOOLS ?=
 
 release-tools: ## Compiles a set of release tools, specified by $RELEASE_TOOLS
 	./compile-release-tools $(RELEASE_TOOLS)
-
-##@ GCB Jobs
-
-.PHONY: stage-ci
-
-stage-ci: ## Compiles/installs krel and submits a MOCK streamed stage build to GCB (used for Prow)
-	RELEASE_TOOLS="krel" $(MAKE) release-tools
-	krel gcbmgr --stage \
-		--branch master \
-		--build-version=$$(curl -Ls https://dl.k8s.io/ci/latest.txt) \
-		--stream
 
 ##@ Images
 
@@ -113,8 +114,8 @@ local-image-run: ## Run a locally build image to use the tools of this repositor
 
 ##@ Dependencies
 
-.SILENT: update-deps update-deps-go
-.PHONY:  update-deps update-deps-go
+.SILENT: update-deps update-deps-go update-mocks
+.PHONY:  update-deps update-deps-go update-mocks
 
 update-deps: update-deps-go ## Update all dependencies for this repo
 	echo -e "${COLOR}Commit/PR the following changes:${NOCOLOR}"
@@ -125,8 +126,16 @@ update-deps-go: ## Update all golang dependencies for this repo
 	go get -u -t ./...
 	go mod tidy
 	go mod verify
-	$(MAKE) test-go
+	$(MAKE) test-go-unit
 	./hack/update-all.sh
+
+update-mocks: ## Update all generated mocks
+	go generate ./...
+	for f in $(shell find . -name fake_*.go); do \
+		cp hack/boilerplate/boilerplate.generatego.txt tmp ;\
+		cat $$f >> tmp ;\
+		mv tmp $$f ;\
+	done
 
 ##@ Helpers
 

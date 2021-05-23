@@ -19,7 +19,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,12 +29,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"k8s.io/release/pkg/git"
-	"k8s.io/release/pkg/log"
 	"k8s.io/release/pkg/notes"
 	"k8s.io/release/pkg/notes/document"
 	"k8s.io/release/pkg/notes/options"
 	"k8s.io/release/pkg/release"
-	"k8s.io/release/pkg/util"
+	"sigs.k8s.io/mdtoc/pkg/mdtoc"
+	"sigs.k8s.io/release-utils/env"
+	"sigs.k8s.io/release-utils/log"
 )
 
 type releaseNotesOptions struct {
@@ -59,19 +60,35 @@ var (
 )
 
 func init() {
+	// githubBaseURL contains the github base URL.
+	cmd.PersistentFlags().StringVar(
+		&opts.GithubBaseURL,
+		"github-base-url",
+		env.Default("GITHUB_BASE_URL", ""),
+		"Base URL of github",
+	)
+
+	// githubUploadURL contains the github upload URL.
+	cmd.PersistentFlags().StringVar(
+		&opts.GithubUploadURL,
+		"github-upload-url",
+		env.Default("GITHUB_UPLOAD_URL", ""),
+		"Upload URL of github",
+	)
+
 	// githubOrg contains name of github organization that holds the repo to scrape.
 	cmd.PersistentFlags().StringVar(
 		&opts.GithubOrg,
-		"github-org",
-		util.EnvDefault("GITHUB_ORG", notes.DefaultOrg),
+		"org",
+		env.Default("ORG", notes.DefaultOrg),
 		"Name of github organization",
 	)
 
 	// githubRepo contains name of github repository to scrape.
 	cmd.PersistentFlags().StringVar(
 		&opts.GithubRepo,
-		"github-repo",
-		util.EnvDefault("GITHUB_REPO", notes.DefaultRepo),
+		"repo",
+		env.Default("REPO", notes.DefaultRepo),
 		"Name of github repository",
 	)
 
@@ -80,7 +97,7 @@ func init() {
 	cmd.PersistentFlags().StringVar(
 		&releaseNotesOpts.outputFile,
 		"output",
-		util.EnvDefault("OUTPUT", ""),
+		env.Default("OUTPUT", ""),
 		"The path to the where the release notes will be printed",
 	)
 
@@ -88,8 +105,8 @@ func init() {
 	cmd.PersistentFlags().StringVar(
 		&opts.Branch,
 		"branch",
-		util.EnvDefault("BRANCH", git.Master),
-		"Select which branch to scrape. Defaults to `master`",
+		env.Default("BRANCH", git.DefaultBranch),
+		fmt.Sprintf("Select which branch to scrape. Defaults to `%s`", git.DefaultBranch),
 	)
 
 	// startSHA contains the commit SHA where the release note generation
@@ -97,7 +114,7 @@ func init() {
 	cmd.PersistentFlags().StringVar(
 		&opts.StartSHA,
 		"start-sha",
-		util.EnvDefault("START_SHA", ""),
+		env.Default("START_SHA", ""),
 		"The commit hash to start at",
 	)
 
@@ -105,7 +122,7 @@ func init() {
 	cmd.PersistentFlags().StringVar(
 		&opts.EndSHA,
 		"end-sha",
-		util.EnvDefault("END_SHA", ""),
+		env.Default("END_SHA", ""),
 		"The commit hash to end at",
 	)
 
@@ -114,7 +131,7 @@ func init() {
 	cmd.PersistentFlags().StringVar(
 		&opts.StartRev,
 		"start-rev",
-		util.EnvDefault("START_REV", ""),
+		env.Default("START_REV", ""),
 		"The git revision to start at. Can be used as alternative to start-sha.",
 	)
 
@@ -123,7 +140,7 @@ func init() {
 	cmd.PersistentFlags().StringVar(
 		&opts.EndRev,
 		"end-rev",
-		util.EnvDefault("END_REV", ""),
+		env.Default("END_REV", ""),
 		"The git revision to end at. Can be used as alternative to end-sha.",
 	)
 
@@ -132,23 +149,15 @@ func init() {
 	cmd.PersistentFlags().StringVar(
 		&opts.RepoPath,
 		"repo-path",
-		util.EnvDefault("REPO_PATH", filepath.Join(os.TempDir(), "k8s-repo")),
+		env.Default("REPO_PATH", filepath.Join(os.TempDir(), "k8s-repo")),
 		"Path to a local Kubernetes repository, used only for tag discovery.",
-	)
-
-	// releaseVersion is the version number you want to tag the notes with.
-	cmd.PersistentFlags().StringVar(
-		&opts.ReleaseVersion,
-		"release-version",
-		util.EnvDefault("RELEASE_VERSION", ""),
-		"Which release version to tag the entries as.",
 	)
 
 	// format is the output format to produce the notes in.
 	cmd.PersistentFlags().StringVar(
 		&opts.Format,
 		"format",
-		util.EnvDefault("FORMAT", options.FormatMarkdown),
+		env.Default("FORMAT", options.FormatMarkdown),
 		fmt.Sprintf("The format for notes output (options: %s)",
 			strings.Join([]string{
 				options.FormatJSON,
@@ -161,7 +170,7 @@ func init() {
 	cmd.PersistentFlags().StringVar(
 		&opts.GoTemplate,
 		"go-template",
-		util.EnvDefault("GO_TEMPLATE", options.GoTemplateDefault),
+		env.Default("GO_TEMPLATE", options.GoTemplateDefault),
 		fmt.Sprintf("The go template to be used if --format=markdown (options: %s)",
 			strings.Join([]string{
 				options.GoTemplateDefault,
@@ -174,21 +183,21 @@ func init() {
 	cmd.PersistentFlags().StringVar(
 		&opts.RequiredAuthor,
 		"required-author",
-		util.EnvDefault("REQUIRED_AUTHOR", "k8s-ci-robot"),
+		env.Default("REQUIRED_AUTHOR", "k8s-ci-robot"),
 		"Only commits from this GitHub user are considered. Set to empty string to include all users",
 	)
 
 	cmd.PersistentFlags().BoolVar(
 		&opts.Debug,
 		"debug",
-		util.IsEnvSet("DEBUG"),
+		env.IsSet("DEBUG"),
 		"Enable debug logging",
 	)
 
 	cmd.PersistentFlags().StringVar(
 		&opts.DiscoverMode,
 		"discover",
-		util.EnvDefault("DISCOVER", options.RevisionDiscoveryModeNONE),
+		env.Default("DISCOVER", options.RevisionDiscoveryModeNONE),
 		fmt.Sprintf("The revision discovery mode for automatic revision retrieval (options: %s)",
 			strings.Join([]string{
 				options.RevisionDiscoveryModeNONE,
@@ -202,35 +211,35 @@ func init() {
 	cmd.PersistentFlags().StringVar(
 		&opts.ReleaseBucket,
 		"release-bucket",
-		util.EnvDefault("RELEASE_BUCKET", release.ProductionBucket),
+		env.Default("RELEASE_BUCKET", release.ProductionBucket),
 		"Specify gs bucket to point to in generated notes",
 	)
 
 	cmd.PersistentFlags().StringVar(
 		&opts.ReleaseTars,
 		"release-tars",
-		util.EnvDefault("RELEASE_TARS", ""),
+		env.Default("RELEASE_TARS", ""),
 		"Directory of tars to sha512 sum for display",
 	)
 
 	cmd.PersistentFlags().BoolVar(
 		&releaseNotesOpts.tableOfContents,
 		"toc",
-		util.IsEnvSet("TOC"),
+		env.IsSet("TOC"),
 		"Enable the rendering of the table of contents",
 	)
 
 	cmd.PersistentFlags().StringVar(
 		&opts.RecordDir,
 		"record",
-		util.EnvDefault("RECORD", ""),
+		env.Default("RECORD", ""),
 		"Record the API into a directory",
 	)
 
 	cmd.PersistentFlags().StringVar(
 		&opts.ReplayDir,
 		"replay",
-		util.EnvDefault("REPLAY", ""),
+		env.Default("REPLAY", ""),
 		"Replay a previously recorded API from a directory",
 	)
 
@@ -247,6 +256,12 @@ func init() {
 		"m",
 		[]string{},
 		"specify a location to recursively look for release notes *.y[a]ml file mappings",
+	)
+	cmd.PersistentFlags().BoolVar(
+		&opts.ListReleaseNotesV2,
+		"list-v2",
+		false,
+		"enable experimental implementation to list commits (ListReleaseNotesV2)",
 	)
 }
 
@@ -268,7 +283,7 @@ func WriteReleaseNotes(releaseNotes *notes.ReleaseNotes) (err error) {
 			return errors.Wrapf(err, "opening the supplied output file")
 		}
 	} else {
-		output, err = ioutil.TempFile("", "release-notes-")
+		output, err = os.CreateTemp("", "release-notes-")
 		if err != nil {
 			return errors.Wrapf(err, "creating a temporary file to write the release notes to")
 		}
@@ -276,7 +291,7 @@ func WriteReleaseNotes(releaseNotes *notes.ReleaseNotes) (err error) {
 
 	// Contextualized release notes can be printed in a variety of formats
 	if opts.Format == options.FormatJSON {
-		byteValue, err := ioutil.ReadAll(output)
+		byteValue, err := io.ReadAll(output)
 		if err != nil {
 			return err
 		}
@@ -321,18 +336,22 @@ func WriteReleaseNotes(releaseNotes *notes.ReleaseNotes) (err error) {
 
 		const nl = "\n"
 		if releaseNotesOpts.dependencies {
-			url := git.GetRepoURL(opts.GithubOrg, opts.GithubRepo, false)
-			deps, err := notes.NewDependencies().ChangesForURL(
-				url, opts.StartSHA, opts.EndSHA,
-			)
-			if err != nil {
-				return errors.Wrap(err, "generating dependency report")
+			if opts.StartSHA == opts.EndSHA {
+				logrus.Info("Skipping dependency report because start and end SHA are the same")
+			} else {
+				url := git.GetRepoURL(opts.GithubOrg, opts.GithubRepo, false)
+				deps, err := notes.NewDependencies().ChangesForURL(
+					url, opts.StartSHA, opts.EndSHA,
+				)
+				if err != nil {
+					return errors.Wrap(err, "generating dependency report")
+				}
+				markdown += strings.Repeat(nl, 2) + deps
 			}
-			markdown += strings.Repeat(nl, 2) + deps
 		}
 
 		if releaseNotesOpts.tableOfContents {
-			toc, err := notes.GenerateTOC(markdown)
+			toc, err := mdtoc.GenerateTOC([]byte(markdown))
 			if err != nil {
 				return errors.Wrap(err, "generating table of contents")
 			}

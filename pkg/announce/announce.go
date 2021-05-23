@@ -18,11 +18,17 @@ package announce
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/release-utils/command"
+	"sigs.k8s.io/release-utils/util"
+
+	"k8s.io/release/pkg/kubecross"
 )
 
 const (
@@ -45,7 +51,7 @@ Managers</A>.
 
 const releaseAnnouncement = `Kubernetes Community,
 <p>
-Kubernetes %s has been built and pushed.
+Kubernetes <b>%s</b> has been built and pushed using Golang version <b>%s</b>.
 <p>
 The release notes have been updated in
 <a href=https://git.k8s.io/kubernetes/%s>%s</a>, with a pointer to them on
@@ -88,13 +94,36 @@ func CreateForBranch(opts *Options) error {
 func CreateForRelease(opts *Options) error {
 	logrus.Infof("Creating %s announcement in %s", opts.tag, opts.workDir)
 
+	changelog := ""
+
+	// Read the changelog from the specified file if we got one
+	if opts.changelogFile != "" {
+		changelogData, err := os.ReadFile(opts.changelogFile)
+		if err != nil {
+			return errors.Wrap(err, "reading changelog html file")
+		}
+		changelog = string(changelogData)
+	}
+
+	// ... unless it is overridden by passing the HTML directly
+	if opts.changelogHTML != "" {
+		changelog = opts.changelogHTML
+	}
+
+	logrus.Infof("Trying to get the Go version used to build %s...", opts.tag)
+	goVersion, err := getGoVersion(opts.tag)
+	if err != nil {
+		return err
+	}
+	logrus.Infof("Found the following Go version: %s", goVersion)
+
 	if err := create(
 		opts.workDir,
 		fmt.Sprintf("Kubernetes %s is live!", opts.tag),
 		fmt.Sprintf(releaseAnnouncement,
-			opts.tag, opts.changelogPath, filepath.Base(opts.changelogPath),
-			opts.tag, opts.changelogHTML, opts.changelogPath,
-			filepath.Base(opts.changelogPath), opts.tag,
+			opts.tag, goVersion, opts.changelogPath,
+			filepath.Base(opts.changelogPath), opts.tag, changelog,
+			opts.changelogPath, filepath.Base(opts.changelogPath), opts.tag,
 		),
 	); err != nil {
 		return errors.Wrap(err, "creating release announcement")
@@ -106,7 +135,7 @@ func CreateForRelease(opts *Options) error {
 
 func create(workDir, subject, message string) error {
 	subjectFile := filepath.Join(workDir, subjectFile)
-	if err := ioutil.WriteFile(
+	if err := os.WriteFile(
 		subjectFile, []byte(subject), 0o755,
 	); err != nil {
 		return errors.Wrapf(
@@ -116,7 +145,7 @@ func create(workDir, subject, message string) error {
 	logrus.Debugf("Wrote file %s", subjectFile)
 
 	announcementFile := filepath.Join(workDir, announcementFile)
-	if err := ioutil.WriteFile(
+	if err := os.WriteFile(
 		announcementFile, []byte(message), 0o755,
 	); err != nil {
 		return errors.Wrapf(
@@ -126,4 +155,37 @@ func create(workDir, subject, message string) error {
 	logrus.Debugf("Wrote file %s", announcementFile)
 
 	return nil
+}
+
+// getGoVersion runs kube-cross container and go version inside it.
+// We're running kube-cross container because it's not guaranteed that
+// k8s-cloud-builder container will be running the same Go version as
+// the kube-cross container used to build the release.
+func getGoVersion(tag string) (string, error) {
+	semver, err := util.TagStringToSemver(tag)
+	if err != nil {
+		return "", errors.Wrap(err, "parse version tag")
+	}
+
+	branch := fmt.Sprintf("release-%d.%d", semver.Major, semver.Minor)
+	kc := kubecross.New()
+	kubecrossVer, err := kc.ForBranch(branch)
+	if err != nil {
+		kubecrossVer, err = kc.Latest()
+		if err != nil {
+			return "", errors.Wrap(err, "get kubecross version")
+		}
+	}
+
+	kubecrossImg := fmt.Sprintf("k8s.gcr.io/build-image/kube-cross:%s", kubecrossVer)
+
+	res, err := command.New(
+		"docker", "run", "--rm", kubecrossImg, "go", "version",
+	).RunSilentSuccessOutput()
+	if err != nil {
+		return "", errors.Wrap(err, "get go version")
+	}
+
+	versionRegex := regexp.MustCompile(`^?([0-9]+)(\.[0-9]+)?(\.[0-9]+)`)
+	return versionRegex.FindString(strings.TrimSpace(res.OutputTrimNL())), nil
 }

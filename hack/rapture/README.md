@@ -61,11 +61,14 @@ Before proceeding with the release, ensure the [kubernetes/release][kubernetes/r
 
 **NOTE**: It is a good idea to start in a clean directory, when possible.
 
+`VERSION` should be the Kubernetes version we are building the debs/rpms for e.g., `1.20.0`
+
 _The directory name can be anything. We'll use `$HOME/k8s-1.20.0` as the example here._
 
 ```shell
-mkdir -p $HOME/k8s-1.20.0
-cd $HOME/k8s-1.20.0
+export VERSION=1.20.0 # this is an example, use the appropriate version here
+mkdir -p $HOME/k8s-$VERSION
+cd $HOME/k8s-$VERSION
 git clone https://github.com/kubernetes/release.git
 cd release
 ```
@@ -81,7 +84,7 @@ git checkout master
 Run the following commands to ensure that we are logged in and also the proper project context is setup.
 
 ```shell
-prodaccess
+gcert
 gcloud auth login
 gcloud config set project kubernetes-release-test
 ```
@@ -93,7 +96,7 @@ The entire build process takes several hours. Once you are ready to begin, the d
 `rapture` can be executed as follows:
 
 ```shell
-./hack/rapture/k8s-rapture.sh <version> # <version> should be the Kubernetes version we are building the debs/rpms for e.g., `1.20.0`
+./hack/rapture/k8s-rapture.sh $VERSION
 ```
 
 #### Notes
@@ -105,6 +108,11 @@ The entire build process takes several hours. Once you are ready to begin, the d
 ### Validating packages
 
 Now that `rapture` has successfully complete, we need to verify the packages that were just created. This validation can be done on any instance where Kubernetes is not already installed. (Ideally, you would want to spin up a new VM to test.)
+
+To check for publish success, see the [Debian package list][deb-package-list] and [RPM package list][rpm-package-list] for the versions that were just uploaded. Or curl via shell for Debian and RPM respectively via the [check_rapture script](./check_rapture.sh):
+```shell
+./hack/rapture/check_rapture.sh $VERSION
+```
 
 **If you are on a system with any of these packages are already installed, you must uninstall them first.**
 
@@ -155,9 +163,10 @@ In addition to manual validation, we also have some periodic package verificatio
 See the [Release Engineering dashboard][release-engineering-dashboard] on Testgrid.
 The following jobs are currently configured to do some aspect of package validation:
 
-- https://testgrid.k8s.io/sig-release-misc#debian-unstable
-- https://testgrid.k8s.io/sig-release-misc#periodic-packages-pushed
-- https://testgrid.k8s.io/sig-release-misc#periodic-packages-install-deb
+- https://testgrid.k8s.io/sig-release-releng-informing#build-packages-debs
+- https://testgrid.k8s.io/sig-release-releng-informing#build-packages-rpms
+- https://testgrid.k8s.io/sig-release-releng-informing#verify-packages-debs
+- https://testgrid.k8s.io/sig-release-releng-informing#verify-packages-rpms
 
 **These tend to break when we are in the middle of a push.**
 
@@ -171,7 +180,7 @@ If there is continued test failure on this dashboard without intervention from t
 [kubernetes-build-admins]:  https://github.com/kubernetes/sig-release/tree/master/release-managers.md#build-admins
 [rapture]: k8s-rapture.sh
 [rapture-readme]: https://g3doc.corp.google.com/cloud/kubernetes/g3doc/release/rapture.md?cl=head
-[release-engineering-dashboard]: https://testgrid.k8s.io/sig-release-misc
+[release-engineering-dashboard]: https://testgrid.k8s.io/sig-release-releng-informing
 [release-management-slack]: https://kubernetes.slack.com/messages/CJH2GBF7Y
 [release-managers]: /release-managers.md#release-managers
 [release-managers-group]: https://groups.google.com/a/kubernetes.io/forum/#!forum/release-managers

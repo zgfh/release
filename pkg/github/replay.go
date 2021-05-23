@@ -21,11 +21,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"sync"
 
-	"github.com/google/go-github/v29/github"
+	"github.com/google/go-github/v33/github"
 )
 
 func NewReplayer(replayDir string) Client {
@@ -86,6 +86,19 @@ func (c *githubNotesReplayClient) GetPullRequest(ctx context.Context, owner, rep
 		return nil, nil, err
 	}
 	result := &github.PullRequest{}
+	record := apiRecord{Result: result}
+	if err := json.Unmarshal(data, &record); err != nil {
+		return nil, nil, err
+	}
+	return result, record.response(), nil
+}
+
+func (c *githubNotesReplayClient) GetIssue(ctx context.Context, owner, repo string, number int) (*github.Issue, *github.Response, error) {
+	data, err := c.readRecordedData(gitHubAPIGetIssue)
+	if err != nil {
+		return nil, nil, err
+	}
+	result := &github.Issue{}
 	record := apiRecord{Result: result}
 	if err := json.Unmarshal(data, &record); err != nil {
 		return nil, nil, err
@@ -164,6 +177,12 @@ func (c *githubNotesReplayClient) CreatePullRequest(
 	return &github.PullRequest{}, nil
 }
 
+func (c *githubNotesReplayClient) CreateIssue(
+	ctx context.Context, owner, repo string, req *github.IssueRequest,
+) (*github.Issue, error) {
+	return &github.Issue{}, nil
+}
+
 func (c *githubNotesReplayClient) GetRepository(
 	ctx context.Context, owner, repo string,
 ) (*github.Repository, *github.Response, error) {
@@ -194,6 +213,21 @@ func (c *githubNotesReplayClient) ListBranches(
 	return branches, record.response(), nil
 }
 
+func (c *githubNotesReplayClient) ListMilestones(
+	ctx context.Context, owner, repo string, opts *github.MilestoneListOptions,
+) (mstones []*github.Milestone, resp *github.Response, err error) {
+	data, err := c.readRecordedData(gitHubAPIListMilestones)
+	if err != nil {
+		return nil, nil, err
+	}
+	mstones = make([]*github.Milestone, 0)
+	record := apiRecord{Result: mstones}
+	if err := json.Unmarshal(data, &record); err != nil {
+		return nil, nil, err
+	}
+	return mstones, record.response(), nil
+}
+
 func (c *githubNotesReplayClient) readRecordedData(api gitHubAPI) ([]byte, error) {
 	c.replayMutex.Lock()
 	defer c.replayMutex.Unlock()
@@ -204,11 +238,59 @@ func (c *githubNotesReplayClient) readRecordedData(api gitHubAPI) ([]byte, error
 	}
 
 	path := filepath.Join(c.replayDir, fmt.Sprintf("%s-%d.json", api, i))
-	file, err := ioutil.ReadFile(path)
+	file, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
 	c.replayState[api]++
 	return file, nil
+}
+
+// UpdateReleasePage modifies a release, not recorded
+func (c *githubNotesReplayClient) UpdateReleasePage(
+	ctx context.Context, owner, repo string, releaseID int64, releaseData *github.RepositoryRelease,
+) (*github.RepositoryRelease, error) {
+	return &github.RepositoryRelease{}, nil
+}
+
+// UploadReleaseAsset uploads files, not recorded
+func (c *githubNotesReplayClient) UploadReleaseAsset(
+	context.Context, string, string, int64, *github.UploadOptions, *os.File,
+) (*github.ReleaseAsset, error) {
+	return &github.ReleaseAsset{}, nil
+}
+
+// DeleteReleaseAsset removes an asset from a page, note recorded
+func (c *githubNotesReplayClient) DeleteReleaseAsset(
+	ctx context.Context, owner, repo string, assetID int64) error {
+	return nil
+}
+
+func (c *githubNotesReplayClient) ListReleaseAssets(
+	ctx context.Context, owner, repo string, releaseID int64, opts *github.ListOptions,
+) ([]*github.ReleaseAsset, error) {
+	data, err := c.readRecordedData(gitHubAPIListReleaseAssets)
+	if err != nil {
+		return nil, err
+	}
+	assets := make([]*github.ReleaseAsset, 0)
+	record := apiRecord{Result: assets}
+	if err := json.Unmarshal(data, &record); err != nil {
+		return nil, err
+	}
+	return assets, nil
+}
+
+func (c *githubNotesReplayClient) CreateComment(ctx context.Context, owner, repo string, number int, message string) (*github.IssueComment, *github.Response, error) {
+	data, err := c.readRecordedData(gitHubAPICreateComment)
+	if err != nil {
+		return nil, nil, err
+	}
+	result := &github.IssueComment{}
+	record := apiRecord{Result: result}
+	if err := json.Unmarshal(data, &record); err != nil {
+		return nil, nil, err
+	}
+	return result, record.response(), nil
 }

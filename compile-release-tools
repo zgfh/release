@@ -19,10 +19,11 @@ set -u
 set -o pipefail
 
 RELEASE_TOOLS=(
-  blocking-testgrid-tests
+  cip-mm
   gh2gcs
-  kubepkg
+  kpromo
   krel
+  kubepkg
   schedule-builder
 )
 
@@ -76,9 +77,9 @@ compile_with_flags() {
 
   go build -v -ldflags "-s -w \
     -X $pkg.buildDate=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
-    -X $pkg.gitCommit=$(git rev-parse HEAD) \
+    -X $pkg.gitCommit=$(git rev-parse HEAD 2>/dev/null || echo unknown) \
     -X $pkg.gitTreeState=$git_tree_state \
-    -X $pkg.gitVersion=$(git describe --abbrev=0)" \
+    -X $pkg.gitVersion=$(git describe --tags --abbrev=0 || echo unknown)" \
     -o "$RELEASE_TOOL_BIN/$tool" "./cmd/$tool" \
     || return 1
 
@@ -93,7 +94,11 @@ main() {
 
   if [ $# -gt 0 ]; then
     for tool in "$@"; do
-      compile_with_flags "${tool}"
+      if [[ ${tool} =~ github.com\/ ]]; then
+        compile "${tool}"
+      else
+        compile_with_flags "${tool}"
+      fi
     done
   else
     for tool in "${RELEASE_TOOLS[@]}"; do

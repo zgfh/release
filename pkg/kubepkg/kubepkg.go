@@ -18,7 +18,6 @@ package kubepkg
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -26,15 +25,15 @@ import (
 	"time"
 
 	"github.com/blang/semver"
-	gogithub "github.com/google/go-github/v29/github"
+	gogithub "github.com/google/go-github/v33/github"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"k8s.io/release/pkg/command"
 	"k8s.io/release/pkg/github"
 	"k8s.io/release/pkg/kubepkg/options"
 	"k8s.io/release/pkg/release"
-	"k8s.io/release/pkg/util"
+	"sigs.k8s.io/release-utils/command"
+	"sigs.k8s.io/release-utils/util"
 )
 
 type ChannelType string
@@ -45,7 +44,7 @@ const (
 	ChannelNightly ChannelType = "nightly"
 
 	minimumKubernetesVersion = "1.13.0"
-	CurrentCNIVersion        = "0.8.6"
+	CurrentCNIVersion        = "0.8.7"
 	MinimumCNIVersion        = "0.8.6"
 
 	kubeadmConf = "10-kubeadm.conf"
@@ -125,11 +124,11 @@ func (i *impl) GetKubeVersion(versionType release.VersionType) (string, error) {
 }
 
 func (i *impl) ReadFile(filename string) ([]byte, error) {
-	return ioutil.ReadFile(filename)
+	return os.ReadFile(filename)
 }
 
 func (i *impl) WriteFile(filename string, data []byte, perm os.FileMode) error {
-	return ioutil.WriteFile(filename, data, perm)
+	return os.WriteFile(filename, data, perm)
 }
 
 type Build struct {
@@ -218,7 +217,7 @@ func (c *Client) WalkBuilds(builds []Build) (err error) {
 
 	workingDir := os.Getenv("KUBEPKG_WORKING_DIR")
 	if workingDir == "" {
-		workingDir, err = ioutil.TempDir("", "kubepkg")
+		workingDir, err = os.MkdirTemp("", "kubepkg")
 		if err != nil {
 			return err
 		}

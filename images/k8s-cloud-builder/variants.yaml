@@ -1,13 +1,10 @@
 variants:
+  cross1.16:
+    CONFIG: 'cross1.16'
+    KUBE_CROSS_VERSION: 'v1.16.4-1'
   cross1.15:
     CONFIG: 'cross1.15'
-    KUBE_CROSS_VERSION: 'v1.15.0-rc.2-1'
-    SKOPEO_VERSION: 'v0.2.0'
-  cross1.14:
-    CONFIG: 'cross1.14'
-    KUBE_CROSS_VERSION: 'v1.14.7-1'
-    SKOPEO_VERSION: 'v0.2.0'
-  cross1.13:
-    CONFIG: 'cross1.13'
-    KUBE_CROSS_VERSION: 'v1.13.15-1'
-    SKOPEO_VERSION: 'v0.2.0'
+    KUBE_CROSS_VERSION: 'v1.15.12-1'
+  cross1.15-legacy:
+    CONFIG: 'cross1.15-legacy'
+    KUBE_CROSS_VERSION: 'v1.15.12-legacy-1'

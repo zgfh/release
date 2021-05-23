@@ -17,7 +17,7 @@ limitations under the License.
 package cmd
 
 import (
-	"io/ioutil"
+	"fmt"
 	"os"
 	"strings"
 
@@ -30,7 +30,7 @@ import (
 	"k8s.io/release/pkg/gcp"
 	"k8s.io/release/pkg/gh2gcs"
 	"k8s.io/release/pkg/github"
-	"k8s.io/release/pkg/log"
+	"sigs.k8s.io/release-utils/log"
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -158,7 +158,7 @@ func init() {
 		&opts.logLevel,
 		"log-level",
 		"info",
-		"the logging verbosity, either 'panic', 'fatal', 'error', 'warn', 'warning', 'info', 'debug' or 'trace'",
+		fmt.Sprintf("the logging verbosity, either %s", log.LevelNames()),
 	)
 
 	rootCmd.PersistentFlags().StringVar(
@@ -203,56 +203,53 @@ func run(opts *options) error {
 		return errors.Wrap(err, "pre-checking for GCP package usage")
 	}
 
-	releaseConfigs := &gh2gcs.Config{}
+	releaseCfgs := &gh2gcs.Config{}
 	if opts.configFilePath != "" {
 		logrus.Infof("Reading the config file %s...", opts.configFilePath)
-		data, err := ioutil.ReadFile(opts.configFilePath)
+		data, err := os.ReadFile(opts.configFilePath)
 		if err != nil {
 			return errors.Wrap(err, "failed to read the file")
 		}
 
 		logrus.Info("Parsing the config...")
-		err = yaml.UnmarshalStrict(data, &releaseConfigs)
+		err = yaml.UnmarshalStrict(data, &releaseCfgs)
 		if err != nil {
 			return errors.Wrap(err, "failed to decode the file")
 		}
-
-		for i, releaseConfig := range releaseConfigs.ReleaseConfigs {
-			releaseConfigs.ReleaseConfigs[i].GCSCopyOptions = gh2gcs.CheckGCSCopyOptions(releaseConfig.GCSCopyOptions)
-		}
 	} else {
 		// TODO: Expose certain GCSCopyOptions for user configuration
-		releaseConfigs.ReleaseConfigs = append(releaseConfigs.ReleaseConfigs, gh2gcs.ReleaseConfig{
+		newReleaseCfg := &gh2gcs.ReleaseConfig{
 			Org:                opts.org,
 			Repo:               opts.repo,
 			Tags:               opts.tags,
 			IncludePrereleases: opts.includePrereleases,
 			GCSBucket:          opts.bucket,
 			ReleaseDir:         opts.releaseDir,
-			GCSCopyOptions:     gh2gcs.DefaultGCSCopyOptions,
-		})
+		}
+
+		releaseCfgs.ReleaseConfigs = append(releaseCfgs.ReleaseConfigs, *newReleaseCfg)
 	}
 
 	// Create a real GitHub API client
 	gh := github.New()
 
-	for _, releaseConfig := range releaseConfigs.ReleaseConfigs {
-		if len(releaseConfig.Tags) == 0 {
-			releaseTags, err := gh.GetReleaseTags(releaseConfig.Org, releaseConfig.Repo, releaseConfig.IncludePrereleases)
+	for _, releaseCfg := range releaseCfgs.ReleaseConfigs {
+		if len(releaseCfg.Tags) == 0 {
+			releaseTags, err := gh.GetReleaseTags(releaseCfg.Org, releaseCfg.Repo, releaseCfg.IncludePrereleases)
 			if err != nil {
 				return errors.Wrap(err, "getting release tags")
 			}
 
-			releaseConfig.Tags = releaseTags
+			releaseCfg.Tags = releaseTags
 		}
 
-		if err := gh2gcs.DownloadReleases(&releaseConfig, gh, opts.outputDir); err != nil {
+		if err := gh2gcs.DownloadReleases(&releaseCfg, gh, opts.outputDir); err != nil {
 			return errors.Wrap(err, "downloading release assets")
 		}
 		logrus.Infof("Files downloaded to %s directory", opts.outputDir)
 
 		if !opts.downloadOnly {
-			if err := gh2gcs.Upload(&releaseConfig, gh, opts.outputDir); err != nil {
+			if err := gh2gcs.Upload(&releaseCfg, gh, opts.outputDir); err != nil {
 				return errors.Wrap(err, "uploading release assets to GCS")
 			}
 		}
@@ -270,7 +267,7 @@ func (o *options) SetAndValidate() error {
 			return errors.Errorf("when %s flag is set you need to specify the %s", downloadOnlyFlag, outputDirFlag)
 		}
 
-		tmpDir, err := ioutil.TempDir("", "gh2gcs")
+		tmpDir, err := os.MkdirTemp("", "gh2gcs")
 		if err != nil {
 			return errors.Wrap(err, "creating temp directory")
 		}
