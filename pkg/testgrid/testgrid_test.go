@@ -21,10 +21,11 @@ import (
 	"testing"
 
 	pb "github.com/GoogleCloudPlatform/testgrid/pb/config"
-	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/proto" //nolint:staticcheck // this import was done on purpose
 	"github.com/stretchr/testify/require"
 
-	"k8s.io/release/pkg/git"
+	"sigs.k8s.io/release-sdk/git"
+
 	"k8s.io/release/pkg/testgrid"
 	"k8s.io/release/pkg/testgrid/testgridfakes"
 )
@@ -33,6 +34,7 @@ func newSut() (*testgrid.TestGrid, *testgridfakes.FakeClient) {
 	client := &testgridfakes.FakeClient{}
 	sut := testgrid.New()
 	sut.SetClient(client)
+
 	return sut, client
 }
 
@@ -48,14 +50,14 @@ func TestBlockingTestsSuccess(t *testing.T) {
 			},
 		}},
 	})
-	require.Nil(t, err)
-	client.GetURLResponseReturns(string(httpRes), nil)
+	require.NoError(t, err)
+	client.GetURLResponseReturns(httpRes, nil)
 
 	// When
-	res, err := sut.BlockingTests(git.Master)
+	res, err := sut.BlockingTests(git.DefaultBranch)
 
 	// Then
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.Len(t, res, 2)
 	require.Equal(t, "first", res[0])
 	require.Equal(t, "second", res[1])
@@ -64,25 +66,25 @@ func TestBlockingTestsSuccess(t *testing.T) {
 func TestBlockingTestsFailureDashboardNotFound(t *testing.T) {
 	// Given
 	sut, client := newSut()
-	client.GetURLResponseReturns("", nil)
+	client.GetURLResponseReturns(nil, nil)
 
 	// When
 	res, err := sut.BlockingTests("")
 
 	// Then
-	require.NotNil(t, err)
+	require.Error(t, err)
 	require.Nil(t, res)
 }
 
 func TestBlockingTestsFailureHTTP(t *testing.T) {
 	// Given
 	sut, client := newSut()
-	client.GetURLResponseReturns("", errors.New(""))
+	client.GetURLResponseReturns(nil, errors.New(""))
 
 	// When
 	res, err := sut.BlockingTests("")
 
 	// Then
-	require.NotNil(t, err)
+	require.Error(t, err)
 	require.Nil(t, res)
 }

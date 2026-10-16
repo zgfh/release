@@ -24,24 +24,30 @@ import (
 
 func CheckErr(t *testing.T, err error, expectedMsg string) {
 	t.Helper()
+
 	if expectedMsg == "" {
 		require.NoError(t, err)
+
 		return
 	}
+
 	require.EqualError(t, err, expectedMsg)
 }
 
 func CheckErrSub(t *testing.T, err error, expectedSubstring string) {
 	t.Helper()
+
 	if expectedSubstring == "" {
 		require.NoError(t, err)
+
 		return
 	}
+
 	require.Contains(t, err.Error(), expectedSubstring)
 }
 
 // Run is a small wrapper around t.Run which enables parallel runs
-// unconditionally
+// unconditionally.
 func Run(t *testing.T, name string, f func(*testing.T)) {
 	t.Run(name, func(t *testing.T) {
 		t.Parallel()

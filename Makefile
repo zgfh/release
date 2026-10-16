@@ -20,75 +20,80 @@ SHELL:=/usr/bin/env bash
 
 COLOR:=\\033[36m
 NOCOLOR:=\\033[0m
+HELP_WIDTH:=20
 
-##@ Package
+.PHONY: help
+help:  ## Display this help
+	@awk \
+		-v "col=${COLOR}" -v "nocol=${NOCOLOR}" \
+		' \
+			BEGIN { \
+				FS = ":.*##" ; \
+				printf "\nUsage:\n  make %s<target>%s\n", col, nocol \
+			} \
+			/^[a-zA-Z_-]+:.*?##/ { \
+				printf "  %s%-${HELP_WIDTH}s%s %s\n", col, $$1, nocol, $$2 \
+			} \
+			/^##@/ { \
+				printf "\n%s\n", substr($$0, 5) \
+			} \
+		' $(MAKEFILE_LIST)
 
-.PHONY: verify-published-debs verify-published-rpms
+##@ Verify:
 
-verify-published-debs: ## Ensure debs have been published
-	./hack/packages/verify-published.sh debs
+.PHONY: verify
+verify: release-tools verify-boilerplate verify-build verify-dependencies verify-go-mod verify-package-specs ## Runs verification scripts to ensure correct execution
 
-verify-published-rpms: ## Ensure rpms have been published
-	./hack/packages/verify-published.sh rpms
+.PHONY: verify-boilerplate
+verify-boilerplate: ## Runs the file header check
+	./hack/verify-boilerplate.sh
 
-##@ Verify
+.PHONY: verify-build
+verify-build: ## Builds the project for a chosen set of platforms
+	./hack/verify-build.sh
 
-.PHONY: verify verify-shellcheck
+.PHONY: verify-dependencies
+verify-dependencies: ## Runs zeitgeist to verify dependency versions
+	./hack/verify-dependencies.sh
 
-# TODO: Uncomment verify-shellcheck once we finish shellchecking the repo.
-#       ref: https://github.com/kubernetes/release/issues/726
-verify: #verify-shellcheck ## Runs verification scripts to ensure correct execution
-	@echo consider make verify-bazel as well
+.PHONY: verify-go-mod
+verify-go-mod: ## Runs the go module linter
+	./hack/verify-go-mod.sh
 
-verify-shellcheck: ## Runs shellcheck
-	./hack/verify-shellcheck.sh
+.PHONY: verify-package-specs
+verify-package-specs: ## Runs the rpmlint on package specs
+	./hack/verify-package-specs.sh
 
-verify-golangci-lint: ## Runs all golang linters
-	./hack/verify-golangci-lint.sh
-
-verify-bazel:
-	bazel test //...
-
-##@ Tests
+##@ Tests:
 
 .PHONY: test
-test: test-go test-sh ## Runs unit tests to ensure correct execution
+test: test-go-unit test-sh ## Runs unit tests to ensure correct execution
 
-.PHONY: test-go
-test-go: ## Runs all golang tests
+.PHONY: test-go-unit
+test-go-unit: ## Runs golang unit tests
 	./hack/test-go.sh
+
+.PHONY: test-go-integration
+test-go-integration: ## Runs golang integration tests
+	./hack/test-go-integration.sh
 
 .PHONY: test-sh
 test-sh: ## Runs all shellscript tests
 	./hack/test-sh.sh
 
-##@ Tools
+##@ Tools:
 
 RELEASE_TOOLS ?=
 
 .PHONY: release-tools
-
 release-tools: ## Compiles a set of release tools, specified by $RELEASE_TOOLS
 	./compile-release-tools $(RELEASE_TOOLS)
 
-##@ GCB Jobs
+##@ Images:
 
-.PHONY: stage-ci
-
-stage-ci: ## Compiles/installs krel and submits a MOCK streamed stage build to GCB (used for Prow)
-	RELEASE_TOOLS="krel" $(MAKE) release-tools
-	krel gcbmgr --stage \
-		--branch master \
-		--build-version=$$(curl -Ls https://dl.k8s.io/ci/latest.txt) \
-		--stream
-
-##@ Images
+images := k8s-cloud-builder
 
 .PHONY: update-images
-
-images := \
-	k8s-cloud-builder
-
 update-images: $(addprefix image-,$(images)) ## Update all images in ./images/
 image-%:
 	$(eval img := $(subst image-,,$@))
@@ -111,39 +116,37 @@ local-image-run: ## Run a locally build image to use the tools of this repositor
 		-w /go/src/k8s.io/release \
 		$(LOCALIMAGE_NAME) bash
 
-##@ Dependencies
+##@ Dependencies:
 
-.SILENT: update-deps update-deps-go
-.PHONY:  update-deps update-deps-go
-
+.SILENT: update-deps
+.PHONY:  update-deps
 update-deps: update-deps-go ## Update all dependencies for this repo
 	echo -e "${COLOR}Commit/PR the following changes:${NOCOLOR}"
 	git status --short
 
+.SILENT: update-deps-go
+.PHONY:  update-deps-go
 update-deps-go: GO111MODULE=on
 update-deps-go: ## Update all golang dependencies for this repo
 	go get -u -t ./...
 	go mod tidy
 	go mod verify
-	$(MAKE) test-go
+	$(MAKE) test-go-unit
 	./hack/update-all.sh
 
-##@ Helpers
+.SILENT: protos
+.PHONY:  protos
+protos: ## Regenerate the Go code of the protobuf definitions
+	buf generate
 
-.PHONY: help
-
-help:  ## Display this help
-	@awk \
-		-v "col=${COLOR}" -v "nocol=${NOCOLOR}" \
-		' \
-			BEGIN { \
-				FS = ":.*##" ; \
-				printf "\nUsage:\n  make %s<target>%s\n", col, nocol \
-			} \
-			/^[a-zA-Z_-]+:.*?##/ { \
-				printf "  %s%-15s%s %s\n", col, $$1, nocol, $$2 \
-			} \
-			/^##@/ { \
-				printf "\n%s%s%s\n", col, substr($$0, 5), nocol \
-			} \
-		' $(MAKEFILE_LIST)
+.SILENT: update-mocks
+.PHONY:  update-mocks
+update-mocks: ## Update all generated mocks
+	go generate ./...
+	for f in $(shell find . -name fake_*.go); do \
+		if ! grep -q "^`cat hack/boilerplate/boilerplate.generatego.txt`" $$f; then \
+			cp hack/boilerplate/boilerplate.generatego.txt tmp ;\
+			cat $$f >> tmp ;\
+			mv tmp $$f ;\
+		fi \
+	done

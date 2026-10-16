@@ -17,10 +17,10 @@ limitations under the License.
 package document
 
 import (
-	"crypto/sha512"
+	"context"
+	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -28,21 +28,29 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
+	"sigs.k8s.io/release-utils/hash"
+
+	"k8s.io/release/pkg/cve"
 	"k8s.io/release/pkg/notes"
 	"k8s.io/release/pkg/notes/options"
 	"k8s.io/release/pkg/release"
 )
 
+const prodRegistry = "registry.k8s.io"
+
 // Document represents the underlying structure of a release notes document.
 type Document struct {
 	NotesWithActionRequired notes.Notes    `json:"action_required"`
 	Notes                   NoteCollection `json:"notes"`
-	Downloads               *FileMetadata  `json:"downloads"`
+	FileDownloads           *FileMetadata  `json:"downloads"`
+	ImageDownloads          *ImageMetadata `json:"images"`
 	CurrentRevision         string         `json:"release_tag"`
 	PreviousRevision        string
-	CVEList                 []notes.CVEData
+	CVEList                 []cve.CVE
 }
 
 // FileMetadata contains metadata about files associated with the release.
@@ -60,16 +68,18 @@ type FileMetadata struct {
 	Node []File
 }
 
-// fetchMetadata generates file metadata for k8s binaries in `dir`. Returns nil
-// if `dir` is not given or when there are no matching well known k8s binaries
-// in `dir`.
-func fetchMetadata(dir, urlPrefix, tag string) (*FileMetadata, error) {
+// fetchFileMetadata generates file metadata for k8s binaries in `dir`. Returns
+// nil if `dir` is not given or when there are no matching well known k8s
+// binaries in `dir`.
+func fetchFileMetadata(dir, urlPrefix, tag string) (*FileMetadata, error) {
 	if dir == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // intentional nil,nil return
 	}
+
 	if tag == "" {
 		return nil, errors.New("release tags not specified")
 	}
+
 	if urlPrefix == "" {
 		return nil, errors.New("url prefix not specified")
 	}
@@ -83,24 +93,85 @@ func fetchMetadata(dir, urlPrefix, tag string) (*FileMetadata, error) {
 	}
 
 	var fileCount int
+
 	for fileType, patterns := range m {
 		fInfo, err := fileInfo(dir, patterns, urlPrefix, tag)
 		if err != nil {
-			return nil, errors.Wrap(err, "fetching file info")
+			return nil, fmt.Errorf("fetching file info: %w", err)
 		}
+
 		*fileType = append(*fileType, fInfo...)
 		fileCount += len(fInfo)
 	}
 
 	if fileCount == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // intentional nil,nil return
 	}
+
 	return fm, nil
 }
 
-// fileInfo fetches file metadata for files in `dir` matching `patterns`
+func fetchImageMetadata(dir, tag string) (*ImageMetadata, error) {
+	if dir == "" {
+		return nil, nil //nolint:nilnil // intentional nil,nil return
+	}
+
+	if tag == "" {
+		return nil, errors.New("release tag not specified")
+	}
+
+	manifests, err := release.NewImages().GetManifestImages(
+		prodRegistry, tag, dir, nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get manifest images: %w", err)
+	}
+
+	if len(manifests) == 0 {
+		return nil, nil //nolint:nilnil // intentional nil,nil return
+	}
+
+	res := ImageMetadata{}
+
+	// Link the images to their corresponding Google Cloud artifact registry
+	// location.
+	const linkBase = "https://console.cloud.google.com/artifacts/docker/k8s-artifacts-prod/southamerica-east1/images/"
+
+	for manifest, tempArchitectures := range manifests {
+		imageName := strings.TrimPrefix(manifest, prodRegistry+"/")
+
+		architectures := []string{}
+		for _, architecture := range tempArchitectures {
+			architectures = append(
+				architectures,
+				markdownLink(architecture, linkBase+imageName+"-"+architecture),
+			)
+		}
+
+		res = append(res, Image{
+			Name: markdownLink(
+				fmt.Sprintf("%s:%s", manifest, tag),
+				linkBase+imageName,
+			),
+			Architectures: architectures,
+		})
+	}
+
+	sort.SliceStable(res, func(i, j int) bool {
+		return res[i].Name < res[j].Name
+	})
+
+	return &res, nil
+}
+
+func markdownLink(text, link string) string {
+	return fmt.Sprintf("[%s](%s)", text, link)
+}
+
+// fileInfo fetches file metadata for files in `dir` matching `patterns`.
 func fileInfo(dir string, patterns []string, urlPrefix, tag string) ([]File, error) {
 	var files []File
+
 	for _, pattern := range patterns {
 		matches, err := filepath.Glob(filepath.Join(dir, pattern))
 		if err != nil {
@@ -108,25 +179,20 @@ func fileInfo(dir string, patterns []string, urlPrefix, tag string) ([]File, err
 		}
 
 		for _, filePath := range matches {
-			f, err := os.Open(filePath)
+			sha512, err := hash.SHA512ForFile(filePath)
 			if err != nil {
-				return nil, err
-			}
-			defer f.Close()
-
-			h := sha512.New()
-			if _, err := io.Copy(h, f); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("get sha512: %w", err)
 			}
 
 			fileName := filepath.Base(filePath)
 			files = append(files, File{
-				Checksum: fmt.Sprintf("%x", h.Sum(nil)),
+				Checksum: sha512,
 				Name:     fileName,
 				URL:      fmt.Sprintf("%s/%s/%s", urlPrefix, tag, fileName),
 			})
 		}
 	}
+
 	return files, nil
 }
 
@@ -134,6 +200,15 @@ func fileInfo(dir string, patterns []string, urlPrefix, tag string) ([]File, err
 type File struct {
 	Checksum, Name, URL string
 }
+
+// Image is a released container image.
+type Image struct {
+	Name          string
+	Architectures []string
+}
+
+// ImageMetadata is a list of images.
+type ImageMetadata []Image
 
 // NoteCategory contains notes of the same `Kind` (i.e category).
 type NoteCategory struct {
@@ -152,6 +227,7 @@ func (n *NoteCollection) Sort(kindPriority []notes.Kind) {
 				return i
 			}
 		}
+
 		return -1
 	}
 
@@ -183,24 +259,24 @@ var kindMap = map[notes.Kind]notes.Kind{
 }
 
 // GatherReleaseNotesDocument creates a new gatherer and collects the release
-// notes into a fresh document
+// notes into a fresh document.
 func GatherReleaseNotesDocument(
-	opts *options.Options, previousRev, currentRev string,
+	ctx context.Context, opts *options.Options, previousRev, currentRev string,
 ) (*Document, error) {
-	releaseNotes, err := notes.GatherReleaseNotes(opts)
+	releaseNotes, err := notes.GatherReleaseNotes(ctx, opts)
 	if err != nil {
-		return nil, errors.Wrapf(err, "gathering release notes")
+		return nil, fmt.Errorf("gathering release notes: %w", err)
 	}
 
 	doc, err := New(releaseNotes, previousRev, currentRev)
 	if err != nil {
-		return nil, errors.Wrapf(err, "creating release note document")
+		return nil, fmt.Errorf("creating release note document: %w", err)
 	}
 
 	return doc, nil
 }
 
-// New assembles an organized document from an unorganized set of release notes
+// New assembles an organized document from an unorganized set of release notes.
 func New(
 	releaseNotes *notes.ReleaseNotes,
 	previousRev, currentRev string,
@@ -220,42 +296,37 @@ func New(
 	}
 
 	kindCategory := make(map[notes.Kind]NoteCategory)
+
 	for _, pr := range releaseNotes.History() {
 		note := releaseNotes.Get(pr)
 
-		cvedata, hasCVE := note.DataFields["cve"]
-		if hasCVE {
+		if _, hasCVE := note.DataFields["cve"]; hasCVE {
 			logrus.Infof("Release note for PR #%d has CVE vulnerability info", note.PrNumber)
-			cve := notes.CVEData{}
-			if val, ok := cvedata.(map[interface{}]interface{})["id"].(string); ok {
-				cve.ID = val
+
+			// Create a new CVE data struct for the document
+			newcve := cve.CVE{}
+
+			// Populate the struct from the raw interface
+			if err := newcve.ReadRawInterface(note.DataFields["cve"]); err != nil {
+				return nil, fmt.Errorf("reading CVE data embedded in map file: %w", err)
 			}
-			if val, ok := cvedata.(map[interface{}]interface{})["title"].(string); ok {
-				cve.Title = val
+
+			// Verify that CVE data has the minimum fields defined
+			if err := newcve.Validate(); err != nil {
+				return nil, fmt.Errorf("checking CVE map file for PR #%d: %w", pr, err)
 			}
-			if val, ok := cvedata.(map[interface{}]interface{})["linkedPRs"].([]interface{}); ok {
-				cve.LinkedPRs = []int{}
-				for _, prid := range val {
-					cve.LinkedPRs = append(cve.LinkedPRs, prid.(int))
-				}
-			}
-			if val, ok := cvedata.(map[interface{}]interface{})["published"].(string); ok {
-				cve.Published = val
-			}
-			if val, ok := cvedata.(map[interface{}]interface{})["score"].(float64); ok {
-				cve.Score = float32(val)
-			}
-			if val, ok := cvedata.(map[interface{}]interface{})["rating"].(string); ok {
-				cve.Rating = val
-			}
-			if val, ok := cvedata.(map[interface{}]interface{})["description"].(string); ok {
-				cve.Description = val
-			}
-			doc.CVEList = append(doc.CVEList, cve)
+
+			doc.CVEList = append(doc.CVEList, newcve)
+		}
+
+		if !note.IsMapped && note.DoNotPublish {
+			logrus.Debugf("Skipping PR %d as (marked to not be published)", pr)
+
+			continue
 		}
 
 		// TODO: Refactor the logic here and add testing.
-		if note.DuplicateKind {
+		if note.DuplicateKind { //nolint:gocritic // a switch case would not make it better
 			kind := mapKind(highestPriorityKind(note.Kinds))
 			if existing, ok := kindCategory[kind]; ok {
 				*existing.NoteEntries = append(*existing.NoteEntries, processNote(note.Markdown))
@@ -294,50 +365,61 @@ func New(
 
 	doc.Notes.Sort(kindPriority)
 	sort.Strings(doc.NotesWithActionRequired)
+
 	return doc, nil
 }
 
 // RenderMarkdownTemplate renders a document using the golang template in
 // `templateSpec`. If `templateSpec` is set to `options.GoTemplateDefault`,
 // then it renders in the default template markdown format.
-func (d *Document) RenderMarkdownTemplate(bucket, fileDir, templateSpec string) (string, error) {
+func (d *Document) RenderMarkdownTemplate(bucket, tars, images, templateSpec string) (string, error) {
 	urlPrefix := release.URLPrefixForBucket(bucket)
 
-	fileMetadata, err := fetchMetadata(fileDir, urlPrefix, d.CurrentRevision)
+	fileMetadata, err := fetchFileMetadata(tars, urlPrefix, d.CurrentRevision)
 	if err != nil {
-		return "", errors.Wrap(err, "fetching downloads metadata")
+		return "", fmt.Errorf("fetching file downloads metadata: %w", err)
 	}
-	d.Downloads = fileMetadata
+
+	d.FileDownloads = fileMetadata
+
+	imageMetadata, err := fetchImageMetadata(images, d.CurrentRevision)
+	if err != nil {
+		return "", fmt.Errorf("fetching image downloads metadata: %w", err)
+	}
+
+	d.ImageDownloads = imageMetadata
 
 	goTemplate, err := d.template(templateSpec)
 	if err != nil {
-		return "", errors.Wrap(err, "fetching template")
+		return "", fmt.Errorf("fetching template: %w", err)
 	}
+
 	tmpl, err := template.New("markdown").
 		Funcs(template.FuncMap{"prettyKind": prettyKind}).
 		Parse(goTemplate)
 	if err != nil {
-		return "", errors.Wrap(err, "parsing template")
+		return "", fmt.Errorf("parsing template: %w", err)
 	}
 
 	var s strings.Builder
 	if err := tmpl.Execute(&s, d); err != nil {
-		return "", errors.Wrapf(err, "rendering with template")
+		return "", fmt.Errorf("rendering with template: %w", err)
 	}
+
 	return strings.TrimSpace(s.String()), nil
 }
 
 // template returns either the default template, a template from file or an
 // inline string template. The `templateSpec` must be in the format of
 // `go-template:{default|path/to/template.ext}` or
-// `go-template:inline:string`
+// `go-template:inline:string`.
 func (d *Document) template(templateSpec string) (string, error) {
 	if templateSpec == options.GoTemplateDefault {
 		return defaultReleaseNotesTemplate, nil
 	}
 
 	if !strings.HasPrefix(templateSpec, options.GoTemplatePrefix) {
-		return "", errors.Errorf(
+		return "", fmt.Errorf(
 			"bad template format: expected %q, %q or %q. Got: %q",
 			options.GoTemplateDefault,
 			options.GoTemplatePrefix+"<file.template>",
@@ -345,20 +427,22 @@ func (d *Document) template(templateSpec string) (string, error) {
 			templateSpec,
 		)
 	}
+
 	templatePathOrOnline := strings.TrimPrefix(templateSpec, options.GoTemplatePrefix)
 
 	// Check for inline template
-	if strings.HasPrefix(templatePathOrOnline, options.GoTemplatePrefixInline) {
-		return strings.TrimPrefix(templatePathOrOnline, options.GoTemplatePrefixInline), nil
+	if after, ok := strings.CutPrefix(templatePathOrOnline, options.GoTemplatePrefixInline); ok {
+		return after, nil
 	}
 
 	// Assume file-based template
-	b, err := ioutil.ReadFile(templatePathOrOnline)
+	b, err := os.ReadFile(templatePathOrOnline)
 	if err != nil {
-		return "", errors.Wrap(err, "reading template")
+		return "", fmt.Errorf("reading template: %w", err)
 	}
+
 	if len(b) == 0 {
-		return "", errors.Errorf("template %q must be non-empty", templatePathOrOnline)
+		return "", fmt.Errorf("template %q must be non-empty", templatePathOrOnline)
 	}
 
 	return string(b), nil
@@ -366,56 +450,90 @@ func (d *Document) template(templateSpec string) (string, error) {
 
 // CreateDownloadsTable creates the markdown table with the links to the tarballs.
 // The function does nothing if the `tars` variable is empty.
-func CreateDownloadsTable(w io.Writer, bucket, tars, prevTag, newTag string) error {
+func CreateDownloadsTable(w io.Writer, bucket, tars, images, prevTag, newTag string) error {
 	if prevTag == "" || newTag == "" {
 		return errors.New("release tags not specified")
 	}
 
+	printChangelogSinceLine := func() {
+		fmt.Fprintf(w, "## Changelog since %s\n\n", prevTag)
+	}
+
 	urlPrefix := release.URLPrefixForBucket(bucket)
-	fileMetadata, err := fetchMetadata(tars, urlPrefix, newTag)
-	if fileMetadata == nil {
+
+	fileMetadata, err := fetchFileMetadata(tars, urlPrefix, newTag)
+	if err != nil {
+		return fmt.Errorf("fetching file downloads metadata: %w", err)
+	}
+
+	imageMetadata, err := fetchImageMetadata(images, newTag)
+	if err != nil {
+		return fmt.Errorf("fetching image downloads metadata: %w", err)
+	}
+
+	if fileMetadata == nil && imageMetadata == nil {
 		// If directory is empty, doesn't contain matching files, or is not
 		// given we will have a nil value. This is not an error in every
 		// context. Return early so we do not modify markdown.
 		fmt.Fprintf(w, "# %s\n\n", newTag)
-		fmt.Fprintf(w, "## Changelog since %s\n\n", prevTag)
+		printChangelogSinceLine()
+
 		return nil
 	}
 
-	if err != nil {
-		return errors.Wrap(err, "fetching downloads metadata")
-	}
-
 	fmt.Fprintf(w, "# %s\n\n", newTag)
-	fmt.Fprintf(w, "[Documentation](https://docs.k8s.io)\n\n")
+	fmt.Fprint(w, markdownLink("Documentation", "https://docs.k8s.io"))
+	fmt.Fprintf(w, "\n\n")
 
 	fmt.Fprintf(w, "## Downloads for %s\n\n", newTag)
 
-	// Sort the files by their headers
-	headers := [4]string{
-		"", "Client Binaries", "Server Binaries", "Node Binaries",
-	}
-	files := map[string][]File{
-		headers[0]: fileMetadata.Source,
-		headers[1]: fileMetadata.Client,
-		headers[2]: fileMetadata.Server,
-		headers[3]: fileMetadata.Node,
+	if fileMetadata != nil {
+		// Sort the files by their headers
+		headers := [4]string{
+			"Source Code", "Client Binaries", "Server Binaries", "Node Binaries",
+		}
+		files := map[string][]File{
+			headers[0]: fileMetadata.Source,
+			headers[1]: fileMetadata.Client,
+			headers[2]: fileMetadata.Server,
+			headers[3]: fileMetadata.Node,
+		}
+
+		for _, header := range headers {
+			if header != "" {
+				fmt.Fprintf(w, "### %s\n\n", header)
+			}
+
+			fmt.Fprintln(w, "filename | sha512 hash")
+			fmt.Fprintln(w, "-------- | -----------")
+
+			for _, f := range files[header] {
+				fmt.Fprint(w, markdownLink(f.Name, f.URL))
+				fmt.Fprintf(w, " | `%s`\n", f.Checksum)
+			}
+
+			fmt.Fprintln(w, "")
+		}
 	}
 
-	for _, header := range headers {
-		if header != "" {
-			fmt.Fprintf(w, "### %s\n\n", header)
-		}
-		fmt.Fprintln(w, "filename | sha512 hash")
-		fmt.Fprintln(w, "-------- | -----------")
+	if imageMetadata != nil {
+		fmt.Fprint(w, ContainerImagesDescription)
+		fmt.Fprintln(w, "name | architectures")
+		fmt.Fprintln(w, "---- | -------------")
 
-		for _, f := range files[header] {
-			fmt.Fprintf(w, "[%s](%s) | `%s`\n", f.Name, f.URL, f.Checksum)
+		for _, image := range *imageMetadata {
+			fmt.Fprintf(w,
+				"%s | %s\n",
+				image.Name,
+				strings.Join(image.Architectures, ", "),
+			)
 		}
+
 		fmt.Fprintln(w, "")
 	}
 
-	fmt.Fprintf(w, "## Changelog since %s\n\n", prevTag)
+	printChangelogSinceLine()
+
 	return nil
 }
 
@@ -437,18 +555,25 @@ func mapKind(kind notes.Kind) notes.Kind {
 	if newKind, ok := kindMap[kind]; ok {
 		return newKind
 	}
+
 	return kind
 }
 
 func prettyKind(kind notes.Kind) string {
-	if kind == notes.KindAPIChange {
+	switch kind { //nolint:exhaustive // all cases are covered by default
+	case notes.KindAPIChange:
 		return "API Change"
-	} else if kind == notes.KindFailingTest {
+
+	case notes.KindFailingTest:
 		return "Failing Test"
-	} else if kind == notes.KindBug {
+
+	case notes.KindBug:
 		return "Bug or Regression"
-	} else if kind == notes.KindOther {
+
+	case notes.KindOther:
 		return string(notes.KindOther)
+
+	default:
+		return cases.Title(language.English).String(string(kind))
 	}
-	return strings.Title(string(kind))
 }

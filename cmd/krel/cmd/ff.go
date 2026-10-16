@@ -18,207 +18,74 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	kgit "k8s.io/release/pkg/git"
-	"k8s.io/release/pkg/util"
+	kgit "sigs.k8s.io/release-sdk/git"
+
+	"k8s.io/release/pkg/fastforward"
+	"k8s.io/release/pkg/release"
 )
 
-type ffOptions struct {
-	branch         string
-	masterRef      string
-	nonInteractive bool
-}
+var ffOpts = &fastforward.Options{}
 
-var ffOpts = &ffOptions{}
-
-// ffCmd represents the base command when called without any subcommands
+// ffCmd represents the base command when called without any subcommands.
 var ffCmd = &cobra.Command{
-	Use:   "ff --branch <release-branch> [--ref <master-ref>] [--nomock] [--cleanup]",
-	Short: "Fast forward a Kubernetes release branch",
-	Long: fmt.Sprintf(`ff fast forwards a branch to a specified git object (defaults to %s).
+	Use:     "fast-forward --branch <release-branch> [--ref <main-ref>] [--nomock] [--cleanup]",
+	Short:   "Fast forward a Kubernetes release branch",
+	Aliases: []string{"ff"},
+	Long: fmt.Sprintf(`fast-forward fast forwards a branch to a specified git object (defaults to %s).
 
-krel ff pre-checks that the local branch to be forwarded is an actual
-'release-x.y' branch and that the branch exists remotely. If that is not the
-case, krel ff will fail.
+krel fast-forward pre-checks that the provided branch to be forwarded is an
+actual 'release-x.y' branch and that the branch exists remotely. If that is not
+the case, krel fast-forward will fail.
+
+If no branch is provided, then krel will try to find the latest upstream k/k
+release branch. If this release branch already contains a final minor release,
+then krel ff will do nothing at all.
 
 After that preflight-check, the release branch will be checked out and krel
-verifies that the latest merge base tag is the same for the master and the
+verifies that the latest merge base tag is the same for the main and the
 release branch. This means that only the latest release branch can be fast
 forwarded.
+
+Additionally, krel lists all k/sig-release issues and searches for the
+one with the title "Cut vx.y.0 release". If that exists and is open, then
+krel will skip the fast-forward, because it may happen that a fast-forward
+produces merge conflicts in git when comparing with the already staged sources.
 
 krel merges the provided ref into the release branch and asks for a final
 confirmation if the push should really happen. The push will only be executed
 as real push if the '--nomock' flag is specified.
-`, kgit.Remotify(kgit.Master)),
-	Example:       "krel ff --branch release-1.17 --ref origin/master --cleanup",
+
+If --non-interactive is set to true, then krel will not require any user
+interaction.  This mode is mainly made for CI purposes.
+
+If --submit is set to true, then krel fast-forward will run by submitting a new
+Google Cloud Build job.
+`, kgit.Remotify(kgit.DefaultBranch)),
+	Example:       "krel fast-forward --branch release-1.17 --ref origin/master --cleanup",
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runFf(ffOpts, rootOpts)
+		ffOpts.NoMock = rootOpts.nomock
+
+		return fastforward.New(ffOpts).Run()
 	},
 }
 
-const pushUpstreamQuestion = `Are you ready to push the local branch fast-forward changes upstream?
-Please only answer after you have validated the changes.`
-
 func init() {
-	ffCmd.PersistentFlags().StringVar(&ffOpts.branch, "branch", "", "branch")
-	ffCmd.PersistentFlags().StringVar(&ffOpts.masterRef, "ref", kgit.Remotify(kgit.Master), "ref on master")
+	ffCmd.PersistentFlags().StringVar(&ffOpts.RepoPath, "repo-path", filepath.Join(os.TempDir(), "k8s"), "the local path to the repository to be used")
+	ffCmd.PersistentFlags().StringVar(&ffOpts.GitHubOrg, "github-org", release.GetK8sOrg(), "the GitHub Organization to be used do the initial clone")
+	ffCmd.PersistentFlags().StringVar(&ffOpts.GitHubRepo, "github-repo", release.GetK8sRepo(), "the GitHub Repository to be used do the initial clone")
+	ffCmd.PersistentFlags().StringVar(&ffOpts.Branch, "branch", "", "branch")
+	ffCmd.PersistentFlags().StringVar(&ffOpts.MainRef, "ref", kgit.Remotify(kgit.DefaultBranch), "ref on the main branch")
+	ffCmd.PersistentFlags().StringVar(&ffOpts.GCPProjectID, "project-id", release.DefaultKubernetesStagingProject, "Google Cloud Project to use to submit the job")
+	ffCmd.PersistentFlags().BoolVar(&ffOpts.Cleanup, "cleanup", false, "cleanup the repository after the run")
+	ffCmd.PersistentFlags().BoolVar(&ffOpts.NonInteractive, "non-interactive", false, "do not require any user interaction")
+	ffCmd.PersistentFlags().BoolVar(&ffOpts.Submit, "submit", false, "run inside of Google Cloud Build by submitting a new job")
 
 	rootCmd.AddCommand(ffCmd)
-}
-
-func runFf(opts *ffOptions, rootOpts *rootOptions) error {
-	branch := opts.branch
-	if branch == "" {
-		return errors.New("please specify valid release branch")
-	}
-
-	logrus.Infof("Preparing to fast-forward %s onto the %s branch", opts.masterRef, branch)
-	repo, err := kgit.CloneOrOpenDefaultGitHubRepoSSH(rootOpts.repoPath)
-	if err != nil {
-		return err
-	}
-
-	if !rootOpts.nomock {
-		logrus.Info("Using dry mode, which does not modify any remote content")
-		repo.SetDry()
-	}
-
-	logrus.Infof("Checking if %q is a release branch", branch)
-	if isReleaseBranch := kgit.IsReleaseBranch(branch); !isReleaseBranch {
-		return errors.Errorf("%s is not a release branch", branch)
-	}
-
-	logrus.Info("Checking if branch is available on the default remote")
-	if err := repo.HasRemoteBranch(branch); err != nil {
-		return err
-	}
-
-	if rootOpts.cleanup {
-		defer repo.Cleanup() // nolint: errcheck
-	} else {
-		// Restore the currently checked out branch afterwards
-		currentBranch, err := repo.CurrentBranch()
-		if err != nil {
-			return errors.Wrap(err, "unable to retrieve current branch")
-		}
-		defer func() {
-			if err := repo.Checkout(currentBranch); err != nil {
-				logrus.Errorf("Unable to restore branch %s: %v", currentBranch, err)
-			}
-		}()
-	}
-
-	logrus.Info("Checking out release branch")
-	if err := repo.Checkout(branch); err != nil {
-		return errors.Wrapf(err, "checking out branch %s", branch)
-	}
-
-	logrus.Infof("Finding merge base between %q and %q", kgit.Master, branch)
-	mergeBase, err := repo.MergeBase(kgit.Master, branch)
-	if err != nil {
-		return err
-	}
-
-	// Verify the tags
-	masterTag, err := repo.Describe(
-		kgit.NewDescribeOptions().
-			WithRevision(kgit.Remotify(kgit.Master)).
-			WithAbbrev(0).
-			WithTags(),
-	)
-
-	if err != nil {
-		return err
-	}
-	mergeBaseTag, err := repo.Describe(
-		kgit.NewDescribeOptions().
-			WithRevision(mergeBase).
-			WithAbbrev(0).
-			WithTags(),
-	)
-	if err != nil {
-		return err
-	}
-	logrus.Infof("Merge base tag is: %s", mergeBaseTag)
-
-	if masterTag != mergeBaseTag {
-		return errors.Errorf(
-			"unable to fast forward: tag %q does not match %q",
-			masterTag, mergeBaseTag,
-		)
-	}
-	logrus.Infof("Verified that the latest master tag is the same as the merge base tag")
-
-	releaseRev, err := repo.Head()
-	if err != nil {
-		return err
-	}
-	logrus.Infof("Latest release branch revision is %s", releaseRev)
-
-	logrus.Info("Merging master changes into release branch")
-	if err := repo.Merge(opts.masterRef); err != nil {
-		return err
-	}
-
-	headRev, err := repo.Head()
-	if err != nil {
-		return err
-	}
-
-	prepushMessage(repo.Dir(), branch, opts.masterRef, releaseRev, headRev)
-
-	pushUpstream := false
-	if opts.nonInteractive {
-		pushUpstream = true
-	} else {
-		_, pushUpstream, err = util.Ask(pushUpstreamQuestion, "yes", 3)
-		if err != nil {
-			return err
-		}
-	}
-
-	if pushUpstream {
-		logrus.Infof("Pushing %s branch", branch)
-		if err := repo.Push(branch); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func prepushMessage(gitRoot, branch, ref, releaseRev, headRev string) {
-	fmt.Printf(`Go look around in %s to make sure things look okay before pushing…
-
-Check for files left uncommitted using:
-
-	git status -s
-
-Validate the fast-forward commit using:
-
-	git show
-
-Validate the changes pulled in from master using:
-
-	git log %s..%s
-
-Once the branch fast-forward is complete, the diff will be available after push at:
-
-	https://github.com/%s/%s/compare/%s...%s
-
-`,
-		gitRoot,
-		kgit.Remotify(branch),
-		ref,
-		kgit.DefaultGithubOrg,
-		kgit.DefaultGithubRepo,
-		releaseRev[:11],
-		headRev[:11],
-	)
 }

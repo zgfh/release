@@ -17,28 +17,24 @@ limitations under the License.
 package auth
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 
-	"github.com/pkg/errors"
-
-	"k8s.io/release/pkg/command"
-	"k8s.io/release/pkg/gcp"
+	"sigs.k8s.io/release-sdk/gcli"
 )
 
 func GetCurrentGCPUser() (string, error) {
-	authListStatus, authListErr := command.New(
-		gcp.GCloudExecutable,
+	gcpUser, err := gcli.GCloudOutput(
 		"auth",
 		"list",
 		"--filter=status:ACTIVE",
 		"--format=value(account)",
 		"--verbosity=debug",
-	).RunSilentSuccessOutput()
-	if authListErr != nil {
-		return "", authListErr
+	)
+	if err != nil {
+		return "", err
 	}
-
-	gcpUser := authListStatus.Output()
 
 	if gcpUser == "" {
 		return "", errors.New("the GCP user name should not be empty")
@@ -47,6 +43,19 @@ func GetCurrentGCPUser() (string, error) {
 	gcpUser = NormalizeGCPUser(gcpUser)
 
 	return gcpUser, nil
+}
+
+func ConfigureDocker() error {
+	err := gcli.GCloud(
+		"auth",
+		"configure-docker",
+		"gcr.io,us-central1-docker.pkg.dev",
+	)
+	if err != nil {
+		return fmt.Errorf("running 'gcloud auth configure-docker': %w", err)
+	}
+
+	return nil
 }
 
 func NormalizeGCPUser(gcpUser string) string {

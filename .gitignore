@@ -23,6 +23,7 @@
 /output*/
 /_output*/
 /_output
+/dist
 
 # Emacs save files
 *~
@@ -135,3 +136,5 @@ CHANGELOG-*.html
 
 # downloaded and built binaries
 bin
+qemu-*-static
+rootfs.tar

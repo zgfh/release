@@ -4,10 +4,10 @@ This directory contains a tool called `release-notes` and a set of library utili
 
 ## Install
 
-The simplest way to install the `release-notes` CLI is via `go get`:
+The simplest way to install the `release-notes` CLI is via `go install`:
 
 ```
-GO111MODULE=on go get k8s.io/release/cmd/release-notes
+$ go install k8s.io/release/cmd/release-notes@latest
 ```
 
 This will install `release-notes` to `$(go env GOPATH)/bin/release-notes`.
@@ -19,8 +19,8 @@ To generate release notes for a commit range, run:
 ```bash
 $ export GITHUB_TOKEN=a_github_api_token
 $ release-notes \
-  -start-sha 02dc3d713dd7f945a8b6f7ef3e008f3d29c2d549 \
-  -end-sha   23649560c060ad6cd82da8da42302f8f7e38cf1e
+  --start-sha 02dc3d713dd7f945a8b6f7ef3e008f3d29c2d549 \
+  --end-sha   23649560c060ad6cd82da8da42302f8f7e38cf1e
 
 level=info timestamp=2019-07-30T04:02:30.9452687Z caller=main.go:139 msg="fetching all commits. this might take a while..."
 level=info timestamp=2019-07-30T04:02:43.8454168Z caller=notes.go:446 msg="[1/1679 - 0.06%]"
@@ -50,14 +50,14 @@ You can also generate the raw notes data into JSON. You can then use a variety o
 ]
 ```
 
-if you would like to debug a run, use the `-debug` flag:
+if you would like to debug a run, use the `--debug` flag:
 
 ```bash
 $ export GITHUB_TOKEN=a_github_api_token
 $ release-notes \
-  -start-sha 02dc3d713dd7f945a8b6f7ef3e008f3d29c2d549 \
-  -end-sha   23649560c060ad6cd82da8da42302f8f7e38cf1e \
-  -debug 
+  --start-sha 02dc3d713dd7f945a8b6f7ef3e008f3d29c2d549 \
+  --end-sha   23649560c060ad6cd82da8da42302f8f7e38cf1e \
+  --debug 
 
 level=debug timestamp=2019-07-30T04:02:43.8453116Z caller=notes.go:445 msg=################################################
 level=info timestamp=2019-07-30T04:02:43.8454168Z caller=notes.go:446 msg="[1/1679 - 0.06%]"
@@ -69,30 +69,33 @@ level=debug timestamp=2019-07-30T04:02:44.3716249Z caller=notes.go:497 msg="Excl
 
 ## Options
 
-| Flag                    | Env Variable    | Default Value       | Required | Description                                                                                                                       |
-| ----------------------- | --------------- | ------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Flag                    | Env Variable      | Default Value       | Required | Description                                                                                                                                                                                                                                                                                     |
+| ----------------------- | ----------------- | ------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **GITHUB REPO OPTIONS** |
-|                         | GITHUB_TOKEN    |                     | Yes      | A personal GitHub access token                                                                                                    |
-| github-org              | GITHUB_ORG      | kubernetes          | Yes      | Name of GitHub organization                                                                                                       |
-| github-repo             | GITHUB_REPO     | kubernetes          | Yes      | Name of GitHub repository                                                                                                         |
-| required-author         | REQUIRED_AUTHOR | k8s-ci-robot        | Yes      | Only commits from this GitHub user are considered. Set to empty string to include all users                                       |
-| branch                  | BRANCH          | master              | Yes      | The GitHub repository branch to scrape                                                                                            |
-| start-sha               | START_SHA       |                     | Yes      | The commit hash to start processing from (inclusive)                                                                              |
-| end-sha                 | END_SHA         |                     | Yes      | The commit hash to end processing at (inclusive)                                                                                  |
-| repo-path               | REPO_PATH       | /tmp/k8s-repo       | No       | Path to a local Kubernetes repository, used only for tag discovery                                                                |
-| start-rev               | START_REV       |                     | No       | The git revision to start at. Can be used as alternative to start-sha                                                             |
-| env-rev                 | END_REV         |                     | No       | The git revision to end at. Can be used as alternative to end-sha                                                                 |
-| discover                | DISCOVER        | none                | No       | The revision discovery mode for automatic revision retrieval (options: none, mergebase-to-latest, patch-to-patch, patch-to-latest, minor-to-minor) |
-| release-bucket          | RELEASE_BUCKET  | kubernetes-release  | No       | Specify gs bucket to point to in generated notes (default "kubernetes-release")                                                   |
-| release-tars            | RELEASE_TARS    |                     | No       | Directory of tars to sha512 sum for display                                                                                       |
+|                         | GITHUB_TOKEN      |                     | Yes      | A personal GitHub access token                                                                                                                                                                                                                                                                  |
+| org                     | ORG               | kubernetes          | Yes      | Name of GitHub organization                                                                                                                                                                                                                                                                     |
+| repo                    | REPO              | kubernetes          | Yes      | Name of GitHub repository                                                                                                                                                                                                                                                                       |
+| required-author         | REQUIRED_AUTHOR   | k8s-ci-robot        | Yes      | Only commits from this GitHub user are considered. Set to empty string to include all users                                                                                                                                                                                                     |
+| branch                  | BRANCH            | master              | Yes      | The GitHub repository branch to scrape                                                                                                                                                                                                                                                          |
+| start-sha               | START_SHA         |                     | Yes      | The commit hash to start processing from (inclusive)                                                                                                                                                                                                                                            |
+| end-sha                 | END_SHA           |                     | Yes      | The commit hash to end processing at (inclusive)                                                                                                                                                                                                                                                |
+| github-base-url         | GITHUB_BASE_URL   |                     | No       | The base URL of Github                                                                                                                                                                                                                                                                          |
+| github-upload-url       | GITHUB_UPLOAD_URL |                     | No       | The upload URL of enterprise Github                                                                                                                                                                                                                                                             |
+| repo-path               | REPO_PATH         | /tmp/k8s-repo       | No       | Path to a local Kubernetes repository, used only for tag discovery                                                                                                                                                                                                                              |
+| start-rev               | START_REV         |                     | No       | The git revision to start at. Can be used as alternative to start-sha                                                                                                                                                                                                                           |
+| end-rev                 | END_REV           |                     | No       | The git revision to end at. Can be used as alternative to end-sha                                                                                                                                                                                                                               |
+| skip-first-commit       | SKIP_FIRST_COMMIT | false               | No       | Skip the first commit if --start-rev is being used. This is useful if the --start-rev is a tag which should not be included in the release notes.                                                                                                                                               |
+| discover                | DISCOVER          | none                | No       | The revision discovery mode for automatic revision retrieval (options: none, mergebase-to-latest, patch-to-patch, patch-to-latest, minor-to-minor)                                                                                                                                              |
+| release-bucket          | RELEASE_BUCKET    | kubernetes-release  | No       | Specify gs bucket to point to in generated notes (default "kubernetes-release")                                                                                                                                                                                                                 |
+| release-tars            | RELEASE_TARS      |                     | No       | Directory of tars to sha512 sum for display                                                                                                                                                                                                                                                     |
 | **OUTPUT OPTIONS**      |
-| output                  | OUTPUT          |                     | No       | The path where the release notes will be written                                                                                  |
-| format                  | FORMAT          | markdown            | No       | The format for notes output (options: json, markdown)                                                                             |
-| go-template             | GO_TEMPLATE     | go-template:default | No       | The go template if `--format=markdown` (options: go-template:default, go-template:inline:<template-string> go-template:<file.template>) |
-| release-version         | RELEASE_VERSION |                     | No       | The release version to tag the notes with                                                                                         |
-| dependencies            |                 | true                | No       | Add dependency report                                                                                                             |
+| output                  | OUTPUT            |                     | No       | The path where the release notes will be written                                                                                                                                                                                                                                                |
+| format                  | FORMAT            | markdown            | No       | The format for notes output (options: json, markdown)                                                                                                                                                                                                                                           |
+| markdown-links          | MARKDOWN_LINKS    | false               | No       | Add links for PRs and authors in the markdown format. This is useful when the release notes are outputted to a file. When using the GitHub release page to publish release notes, this option should be set to false to take advantage of Github's autolinked references (options: true, false) |
+| go-template             | GO_TEMPLATE       | go-template:default | No       | The go template if `--format=markdown` (options: go-template:default, go-template:inline:<template-string> go-template:<file.template>)                                                                                                                                                         |
+| dependencies            |                   | true                | No       | Add dependency report                                                                                                                                                                                                                                                                           |
 | **LOG OPTIONS**         |
-| debug                   | DEBUG           | false               | No       | Enable debug logging (options: true, false)                                                                                       |
+| debug                   | DEBUG             | false               | No       | Enable debug logging (options: true, false)                                                                                                                                                                                                                                                     |
 
 ## Building From Source
 
@@ -105,21 +108,8 @@ git clone git@github.com:kubernetes/release.git $(go env GOPATH)/src/k8s.io/rele
 Run the following from the root of the repository to build the `release-notes` binary:
 
 ```
-bazel build //cmd/release-notes
+go install ./cmd/release-notes
 ```
-
-Use the `-h` flag for help:
-
-```
-./bazel-bin/cmd/release-notes/darwin_amd64_stripped/release-notes -h
-```
-
-Install the binary into your path:
-
-```
-cp ./bazel-bin/cmd/release-notes/darwin_amd64_stripped/release-notes /usr/local/bin/release-notes
-```
-
 
 ## FAQ
 
@@ -132,5 +122,4 @@ Check out the rendering of 1.11's release notes [here](https://gist.github.com/m
 Right now the tool can output release notes in Markdown and JSON. The tool
 also supports arbitrary formats using go-templates. The template has access
 to fields in the `Document` struct. For an example, see the default markdown
-template (`pkg/notes/internal/template.go`) used to render the stock format.
-
+template ([pkg/notes/document/template.go](../../pkg/notes/document/template.go)) used to render the stock format.

@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+
+# Copyright 2024 The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+set -o errexit
+set -o nounset
+set -o pipefail
+set -x
+
+curl_retry() {
+    curl -sSfL --retry 5 --retry-delay 3 "$@"
+}
+
+DEFAULT_TOOL_ORG=kubernetes
+DEFAULT_TOOL_REPO=release
+DEFAULT_TOOL_REF=master
+
+TOOL_ORG=${TOOL_ORG:-${DEFAULT_TOOL_ORG}}
+TOOL_REPO=${TOOL_REPO:-${DEFAULT_TOOL_REPO}}
+TOOL_REF=${TOOL_REF:-${DEFAULT_TOOL_REF}}
+
+FORCE_BUILD_KREL=${FORCE_BUILD_KREL:-false}
+
+KREL_OUTPUT_PATH=${KREL_OUTPUT_PATH:-bin/krel}
+echo "Using output path: $KREL_OUTPUT_PATH"
+mkdir -p "$(dirname "$KREL_OUTPUT_PATH")"
+
+if [[ "$FORCE_BUILD_KREL" == false &&
+    "$TOOL_ORG" == "$DEFAULT_TOOL_ORG" &&
+    "$TOOL_REPO" == "$DEFAULT_TOOL_REPO" &&
+    "$TOOL_REF" == "$DEFAULT_TOOL_REF" ]]; then
+
+    LATEST_RELEASE=$(curl_retry https://api.github.com/repos/kubernetes/release/releases/latest | jq -r .tag_name)
+    echo "Using krel release: $LATEST_RELEASE"
+
+    echo "Downloading krel from GitHub releases…"
+    GH_URL="https://github.com/kubernetes/release/releases/download/$LATEST_RELEASE/krel-amd64-linux"
+    curl_retry "$GH_URL" -o "$KREL_OUTPUT_PATH"
+    chmod +x "$KREL_OUTPUT_PATH"
+else
+    echo "Building krel from sources"
+    go build -o "$KREL_OUTPUT_PATH" ./cmd/krel
+fi
+
+echo "Done, output of 'krel version':"
+"$KREL_OUTPUT_PATH" version

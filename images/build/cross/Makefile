@@ -12,48 +12,90 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY:	build push
+# set default shell
+SHELL=/bin/bash -o pipefail
 
-STAGING_REGISTRY?=gcr.io/k8s-staging-build-image
-PROD_REGISTRY?=k8s.gcr.io/build-image
-IMAGE=kube-cross
+IMGNAME = kube-cross
 
-TAG?=$(shell git describe --tags --always --dirty)
-CONFIG?=go1.14
-KUBE_CROSS_VERSION?=v1.14.6-1
+# Represents the targeted Kubernetes version at the time the images
+# are to be created e.g., 'v1.100.0'
+#
+# Note: There is no need to increment the patch version of this variable.
+#       The reason for the inclusion of the patch version here is to satisfy
+#       a SemVer regex on the IMAGE_VERSION.
+#
+# Example:
+# - v1.100.0-go1.17-bullseye.0 satisfies SemVer regex, while:
+# - v1.100-go1.17-bullseye.0 does not
+KUBERNETES_VERSION ?= v1.38.0
+GO_VERSION ?= 1.27.1
+GO_MAJOR_VERSION ?= 1.27
+OS_CODENAME ?= bullseye
+REVISION ?= 0
+TYPE ?= default
 
 # Build args
-GO_VERSION?=1.14.6
-PROTOBUF_VERSION?=3.0.2
-ETCD_VERSION?=v3.4.9
+BASEIMAGE ?= debian:$(OS_CODENAME)-slim
+PROTOBUF_VERSION ?= 3.19.4
 
-# TODO: Support multi-arch kube-cross images
-#       ref:
-#       - https://github.com/kubernetes/release/pull/1140/commits/e96924f58d9ce2bb73045fbba13f259b4345c0d9#r395056830
-#       - https://github.com/kubernetes/kubernetes/issues/78964
-#       - https://github.com/kubernetes/kubernetes/issues/75114
-ARCH=amd64
+IMAGE = $(REGISTRY)/$(IMGNAME)
+TAG ?= $(shell git describe --tags --always --dirty)
 
-all: build push
+# Configuration
+CONFIG = go$(GO_MAJOR_VERSION)-$(OS_CODENAME)
+BUILD_METADATA = go$(GO_VERSION)-$(OS_CODENAME).$(REVISION)
 
-build:
-	docker build \
-		-t $(STAGING_REGISTRY)/$(IMAGE)-$(ARCH):$(TAG)-$(CONFIG) \
-		-t $(STAGING_REGISTRY)/$(IMAGE)-$(ARCH):latest-$(CONFIG) \
-		-t $(STAGING_REGISTRY)/$(IMAGE)-$(ARCH):$(KUBE_CROSS_VERSION) \
-		-t $(PROD_REGISTRY)/$(IMAGE)-$(ARCH):$(KUBE_CROSS_VERSION) \
-		--build-arg=GO_VERSION=$(GO_VERSION) \
-		--build-arg=PROTOBUF_VERSION=$(PROTOBUF_VERSION) \
-		--build-arg=ETCD_VERSION=$(ETCD_VERSION) \
-		.
+IMAGE_VERSION = $(KUBERNETES_VERSION)-$(BUILD_METADATA)
 
-push:
-	docker push $(STAGING_REGISTRY)/$(IMAGE)-$(ARCH):$(TAG)-$(CONFIG)
-	docker push $(STAGING_REGISTRY)/$(IMAGE)-$(ARCH):latest-$(CONFIG)
-	docker push $(STAGING_REGISTRY)/$(IMAGE)-$(ARCH):$(KUBE_CROSS_VERSION)
-	docker manifest create --amend $(STAGING_REGISTRY)/$(IMAGE):$(KUBE_CROSS_VERSION) \
-		$(STAGING_REGISTRY)/$(IMAGE)-$(ARCH):$(KUBE_CROSS_VERSION)
-	docker manifest annotate $(STAGING_REGISTRY)/$(IMAGE):$(KUBE_CROSS_VERSION) \
-		$(STAGING_REGISTRY)/$(IMAGE)-$(ARCH):$(KUBE_CROSS_VERSION) \
-		--arch $(ARCH)
-	docker manifest push -p $(STAGING_REGISTRY)/$(IMAGE):$(KUBE_CROSS_VERSION)
+PLATFORMS ?= linux/amd64 linux/arm64 linux/ppc64le linux/s390x
+
+KUBE_DYNAMIC_CROSSPLATFORMS ?= "arm64 armhf i386 ppc64el s390x"
+KUBE_CROSSPLATFORMS ?= "linux/386 linux/arm linux/arm64 linux/ppc64le linux/s390x darwin/amd64 windows/amd64 windows/386"
+
+ARCHS = $(patsubst linux/%,%,$(PLATFORMS))
+
+check-env:
+ifndef REGISTRY
+	$(error REGISTRY is undefined, please set to registry you want to push)
+endif
+
+# build with buildx
+# https://github.com/docker/buildx/issues/59
+.PHONY: container
+container: check-env
+	echo "Building $(IMGNAME) for the following platforms: $(PLATFORMS)"
+	@for platform in $(PLATFORMS); do \
+		echo "Starting build for $${platform} platform"; \
+		docker buildx build \
+			--load \
+			--progress plain \
+			--platform $${platform} \
+			--tag $(IMAGE)-$${platform##*/}:$(IMAGE_VERSION) \
+			--tag $(IMAGE)-$${platform##*/}:$(TAG)-$(CONFIG)-$(TYPE) \
+			--tag $(IMAGE)-$${platform##*/}:latest-$(CONFIG)-$(TYPE) \
+			--build-arg=BASEIMAGE=$(BASEIMAGE) \
+			--build-arg=PROTOBUF_VERSION=$(PROTOBUF_VERSION) \
+			--build-arg=TARGETPLATFORM=$${platform} \
+			--build-arg=GO_VERSION=$(GO_VERSION) \
+			--build-arg=KUBE_DYNAMIC_CROSSPLATFORMS=$(KUBE_DYNAMIC_CROSSPLATFORMS) \
+			--build-arg=KUBE_CROSSPLATFORMS=$(KUBE_CROSSPLATFORMS) \
+			--file $(TYPE)/Dockerfile \
+			.; \
+	done
+
+.PHONY: push
+push: container
+	echo "Pushing $(IMGNAME) tags"
+	@for platform in $(PLATFORMS); do \
+		echo "Pushing tags for $${platform} platform"; \
+		docker push $(IMAGE)-$${platform##*/}:$(IMAGE_VERSION); \
+		docker push $(IMAGE)-$${platform##*/}:$(TAG)-$(CONFIG)-$(TYPE); \
+		docker push $(IMAGE)-$${platform##*/}:latest-$(CONFIG)-$(TYPE); \
+	done
+
+.PHONY: manifest
+manifest: push
+	docker manifest create --amend $(IMAGE):$(IMAGE_VERSION) $(shell echo $(ARCHS) | sed -e "s~[^ ]*~$(IMAGE)\-&:$(IMAGE_VERSION)~g")
+	@for platform in $(ARCHS); do docker manifest annotate --arch "$${platform}" ${IMAGE}:${IMAGE_VERSION} ${IMAGE}-$${platform}:${IMAGE_VERSION}; done
+	docker manifest push --purge $(IMAGE):$(IMAGE_VERSION)
+

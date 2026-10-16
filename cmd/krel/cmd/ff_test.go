@@ -21,13 +21,16 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"k8s.io/release/pkg/git"
+	"sigs.k8s.io/release-sdk/git"
+
+	"k8s.io/release/pkg/fastforward"
 )
 
-func (s *sut) getFfOptions() *ffOptions {
-	return &ffOptions{
-		masterRef:      git.Remotify(git.Master),
-		nonInteractive: true,
+func (s *sut) getFfOptions() *fastforward.Options {
+	return &fastforward.Options{
+		MainRef:        git.Remotify(git.DefaultBranch),
+		NonInteractive: true,
+		RepoPath:       s.repo.Dir(),
 	}
 }
 
@@ -36,13 +39,10 @@ func TestFfFailedWithoutReleaseBranch(t *testing.T) {
 	s := newSUT(t)
 	defer s.cleanup(t)
 
-	ff := &ffOptions{}
-
 	// When
-	err := runFf(ff, s.getRootOptions())
-
+	err := fastforward.New(&fastforward.Options{}).Run()
 	// Then
-	require.NotNil(t, err)
+	require.Error(t, err)
 }
 
 func TestFfFailedNoReleaseBranch(t *testing.T) {
@@ -51,13 +51,13 @@ func TestFfFailedNoReleaseBranch(t *testing.T) {
 	defer s.cleanup(t)
 
 	ffo := s.getFfOptions()
-	ffo.branch = "not-a-release-branch"
+	ffo.Branch = "not-a-release-branch"
 
 	// When
-	err := runFf(ffo, s.getRootOptions())
+	err := fastforward.New(ffo).Run()
 
 	// Then
-	require.NotNil(t, err)
+	require.Error(t, err)
 }
 
 func TestFfFailedReleaseBranchDoesNotExist(t *testing.T) {
@@ -66,13 +66,13 @@ func TestFfFailedReleaseBranchDoesNotExist(t *testing.T) {
 	defer s.cleanup(t)
 
 	ffo := s.getFfOptions()
-	ffo.branch = "release-1.999"
+	ffo.Branch = "release-1.999"
 
 	// When
-	err := runFf(ffo, s.getRootOptions())
+	err := fastforward.New(ffo).Run()
 
 	// Then
-	require.NotNil(t, err)
+	require.Error(t, err)
 }
 
 func TestFfFailedOldReleaseBranch(t *testing.T) {
@@ -81,13 +81,13 @@ func TestFfFailedOldReleaseBranch(t *testing.T) {
 	defer s.cleanup(t)
 
 	ffo := s.getFfOptions()
-	ffo.branch = "release-1.17"
+	ffo.Branch = "release-1.17"
 
 	// When
-	err := runFf(ffo, s.getRootOptions())
+	err := fastforward.New(ffo).Run()
 
 	// Then
-	require.NotNil(t, err)
+	require.Error(t, err)
 }
 
 func TestFfSuccessDryRun(t *testing.T) {
@@ -96,13 +96,13 @@ func TestFfSuccessDryRun(t *testing.T) {
 	defer s.cleanup(t)
 
 	ffo := s.getFfOptions()
-	ffo.branch = pseudoReleaseBranch
+	ffo.Branch = pseudoReleaseBranch
 
 	// When
-	err := runFf(ffo, s.getRootOptions())
+	err := fastforward.New(ffo).Run()
 
 	// Then
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	// Local should contain the commit
 	lastLocalCommit := s.lastCommit(t, pseudoReleaseBranch)
@@ -119,16 +119,15 @@ func TestFfSuccess(t *testing.T) {
 	defer s.cleanup(t)
 
 	ffo := s.getFfOptions()
-	ffo.branch = pseudoReleaseBranch
+	ffo.Branch = pseudoReleaseBranch
 
-	ro := s.getRootOptions()
-	ro.nomock = true
+	ffo.NoMock = true
 
 	// When
-	err := runFf(ffo, ro)
+	err := fastforward.New(ffo).Run()
 
 	// Then
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	// Local should contain the commit
 	lastLocalCommit := s.lastCommit(t, pseudoReleaseBranch)

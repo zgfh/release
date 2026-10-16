@@ -17,27 +17,29 @@ limitations under the License.
 package build
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"io/ioutil"
+	maps0 "maps"
 	"os"
 	"path"
 	"path/filepath"
-	"strconv"
+	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/olekukonko/tablewriter"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
 	"google.golang.org/api/cloudbuild/v1"
-	"google.golang.org/api/option"
 
-	"k8s.io/release/pkg/command"
-	"k8s.io/release/pkg/gcp"
-	"k8s.io/release/pkg/release"
+	"sigs.k8s.io/release-sdk/gcli"
+	"sigs.k8s.io/release-sdk/object"
+	"sigs.k8s.io/release-utils/command"
+	"sigs.k8s.io/release-utils/helpers"
+	"sigs.k8s.io/release-utils/tar"
 	"sigs.k8s.io/yaml"
+
+	"k8s.io/release/pkg/release"
 )
 
 const (
@@ -49,6 +51,7 @@ const (
 
 // TODO: Pull some of these options in cmd/gcbuilder, so they don't have to be public.
 type Options struct {
+	objStore       object.Store
 	BuildDir       string
 	ConfigDir      string
 	CloudbuildFile string
@@ -58,9 +61,17 @@ type Options struct {
 	AllowDirty     bool
 	NoSource       bool
 	Async          bool
-	DiskSize       string
 	Variant        string
 	EnvPassthrough string
+}
+
+// NewDefaultOptions returns a new default `*Options` instance.
+func NewDefaultOptions() *Options {
+	return &Options{
+		objStore:       object.NewGCS(),
+		Project:        release.DefaultKubernetesStagingProject,
+		CloudbuildFile: DefaultCloudbuildFile,
+	}
 }
 
 func PrepareBuilds(o *Options) error {
@@ -68,24 +79,18 @@ func PrepareBuilds(o *Options) error {
 		return errors.New("expected a config directory to be provided")
 	}
 
-	if bazelWorkspace := os.Getenv("BUILD_WORKSPACE_DIRECTORY"); bazelWorkspace != "" {
-		if err := os.Chdir(bazelWorkspace); err != nil {
-			return errors.Wrapf(err, "failed to chdir to bazel workspace (%s)", bazelWorkspace)
-		}
-	}
-
 	if o.BuildDir == "" {
 		o.BuildDir = o.ConfigDir
 	}
 
-	logrus.Infof("Build directory: %s\n", o.BuildDir)
+	logrus.Infof("Build directory: %s", o.BuildDir)
 
 	// Canonicalize the config directory to be an absolute path.
 	// As we're about to cd into the build directory, we need a consistent way to reference the config files
 	// when the config directory is not the same as the build directory.
 	absConfigDir, absErr := filepath.Abs(o.ConfigDir)
 	if absErr != nil {
-		return errors.Wrapf(absErr, "could not resolve absolute path for config directory")
+		return fmt.Errorf("could not resolve absolute path for config directory: %w", absErr)
 	}
 
 	o.ConfigDir = absConfigDir
@@ -93,14 +98,15 @@ func PrepareBuilds(o *Options) error {
 
 	configDirErr := o.ValidateConfigDir()
 	if configDirErr != nil {
-		return errors.Wrapf(configDirErr, "could not validate config directory")
+		return fmt.Errorf("could not validate config directory: %w", configDirErr)
 	}
 
-	logrus.Infof("Config directory: %s\n", o.ConfigDir)
+	logrus.Infof("Config directory: %s", o.ConfigDir)
 
-	logrus.Infof("Changing to build directory: %s\n", o.BuildDir)
+	logrus.Infof("Changing to build directory: %s", o.BuildDir)
+
 	if err := os.Chdir(o.BuildDir); err != nil {
-		return errors.Wrapf(err, "failed to chdir to build directory (%s)", o.BuildDir)
+		return fmt.Errorf("failed to chdir to build directory (%s): %w", o.BuildDir, err)
 	}
 
 	return nil
@@ -109,19 +115,23 @@ func PrepareBuilds(o *Options) error {
 func (o *Options) ValidateConfigDir() error {
 	configDir := o.ConfigDir
 	dirInfo, err := os.Stat(o.ConfigDir)
+
 	if os.IsNotExist(err) {
 		logrus.Infof("Config directory (%s) does not exist", configDir)
+
 		return err
 	}
 
 	if !dirInfo.IsDir() {
 		logrus.Infof("Config directory (%s) is not actually a directory", configDir)
+
 		return err
 	}
 
 	_, err = os.Stat(o.CloudbuildFile)
 	if os.IsNotExist(err) {
 		logrus.Infof("%s does not exist", o.CloudbuildFile)
+
 		return err
 	}
 
@@ -129,38 +139,31 @@ func (o *Options) ValidateConfigDir() error {
 }
 
 func (o *Options) uploadBuildDir(targetBucket string) (string, error) {
-	f, err := ioutil.TempFile("", "")
+	f, err := os.CreateTemp("", "")
 	if err != nil {
-		return "", errors.Wrapf(err, "failed to create temp file")
+		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
+
 	name := f.Name()
 	_ = f.Close()
+
 	defer os.Remove(name)
 
 	logrus.Infof("Creating source tarball at %s...", name)
-	tarCmdErr := command.Execute(
-		gcp.TarExecutable,
-		"--exclude",
-		".git",
-		"-czf",
-		name,
-		".",
-	)
-	if tarCmdErr != nil {
-		return "", errors.Wrapf(err, "failed to tar files")
+
+	if err := tar.Compress(name, ".", regexp.MustCompile(".git")); err != nil {
+		return "", fmt.Errorf("create tarball: %w", err)
 	}
 
 	u := uuid.New()
 	uploaded := fmt.Sprintf("%s/%s.tgz", targetBucket, u.String())
 	logrus.Infof("Uploading %s to %s...", name, uploaded)
-	cpErr := command.Execute(
-		gcp.GSUtilExecutable,
-		"cp",
+
+	if err := o.objStore.CopyToRemote(
 		name,
 		uploaded,
-	)
-	if cpErr != nil {
-		return "", errors.Wrapf(err, "failed to upload files")
+	); err != nil {
+		return "", fmt.Errorf("upload files to GCS: %w", err)
 	}
 
 	return uploaded, nil
@@ -169,12 +172,14 @@ func (o *Options) uploadBuildDir(targetBucket string) (string, error) {
 func getExtraSubs(o *Options) map[string]string {
 	envs := strings.Split(o.EnvPassthrough, ",")
 	subs := map[string]string{}
+
 	for _, e := range envs {
 		e = strings.TrimSpace(e)
 		if e != "" {
 			subs[e] = os.Getenv(e)
 		}
 	}
+
 	return subs
 }
 
@@ -188,6 +193,7 @@ func RunSingleJob(o *Options, jobName, uploaded, version string, subs map[string
 	args := []string{
 		"builds", "submit",
 		"--verbosity", "info",
+		"--region", "us-central1",
 		"--config", o.CloudbuildFile,
 		"--substitutions", strings.Join(s, ","),
 	}
@@ -220,38 +226,25 @@ func RunSingleJob(o *Options, jobName, uploaded, version string, subs map[string
 		}
 	}
 
-	if o.DiskSize != "" {
-		diskSizeInt, intErr := strconv.Atoi(o.DiskSize)
-		if intErr != nil {
-			return intErr
-		}
-
-		if diskSizeInt > 1000 {
-			return errors.New("Selected disk size must be no greater than 1000 GB")
-		} else if diskSizeInt <= 0 {
-			return errors.New("Selected disk size must be greater than 0 GB")
-		}
-
-		diskSizeArg := fmt.Sprintf("--disk-size=%s", o.DiskSize)
-		args = append(args, diskSizeArg)
-	}
-
-	cmd := command.New(gcp.GCloudExecutable, args...)
+	cmd := command.New(gcli.GCloudExecutable, args...)
 
 	if o.LogDir != "" {
 		p := path.Join(o.LogDir, strings.ReplaceAll(jobName, "/", "-")+".log")
-		f, err := os.Create(p)
 
+		f, err := os.Create(p)
 		if err != nil {
-			return errors.Wrapf(err, "couldn't create %s", p)
+			return fmt.Errorf("couldn't create %s: %w", p, err)
 		}
 
 		defer f.Close()
+
 		cmd.AddWriter(f)
 	}
 
+	logrus.Infof("cloudbuild command to send to gcp: %s", cmd.String())
+
 	if err := cmd.RunSuccess(); err != nil {
-		return errors.Wrapf(err, "error running %s", cmd.String())
+		return fmt.Errorf("error running %s: %w", cmd.String(), err)
 	}
 
 	return nil
@@ -260,40 +253,48 @@ func RunSingleJob(o *Options, jobName, uploaded, version string, subs map[string
 type variants map[string]map[string]string
 
 func getVariants(o *Options) (variants, error) {
-	content, err := ioutil.ReadFile(path.Join(o.ConfigDir, "variants.yaml"))
+	content, err := os.ReadFile(path.Join(o.ConfigDir, "variants.yaml"))
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return nil, errors.Wrapf(err, "failed to load variants.yaml")
+			return nil, fmt.Errorf("failed to load variants.yaml: %w", err)
 		}
+
 		if o.Variant != "" {
-			return nil, errors.Errorf("no variants.yaml found, but a build variant (%q) was specified", o.Variant)
+			return nil, fmt.Errorf("no variants.yaml found, but a build variant (%q) was specified: %w", o.Variant, err)
 		}
-		return nil, nil
+
+		return nil, nil //nolint:nilnil // intentional nil,nil return
 	}
+
 	v := struct {
 		Variants variants `json:"variants"`
 	}{}
 	if err := yaml.UnmarshalStrict(content, &v); err != nil {
-		return nil, errors.Wrapf(err, "failed to read variants.yaml")
+		return nil, fmt.Errorf("failed to read variants.yaml: %w", err)
 	}
+
 	if o.Variant != "" {
 		va, ok := v.Variants[o.Variant]
 		if !ok {
-			return nil, errors.Errorf("requested variant %q, which is not present in variants.yaml", o.Variant)
+			return nil, fmt.Errorf("requested variant %q, which is not present in variants.yaml", o.Variant)
 		}
+
 		return variants{o.Variant: va}, nil
 	}
+
 	return v.Variants, nil
 }
 
 func RunBuildJobs(o *Options) []error {
 	var uploaded string
+
 	if o.ScratchBucket != "" {
 		if !o.NoSource {
 			var err error
+
 			uploaded, err = o.uploadBuildDir(o.ScratchBucket + gcsSourceDir)
 			if err != nil {
-				return []error{errors.Wrapf(err, "failed to upload source")}
+				return []error{fmt.Errorf("failed to upload source: %w", err)}
 			}
 		}
 	} else {
@@ -301,7 +302,9 @@ func RunBuildJobs(o *Options) []error {
 	}
 
 	logrus.Info("Running build jobs...")
+
 	repo := release.NewRepo()
+
 	err := repo.Open()
 	if err != nil {
 		return []error{err}
@@ -320,11 +323,14 @@ func RunBuildJobs(o *Options) []error {
 	if err != nil {
 		return []error{err}
 	}
+
 	if len(vs) == 0 {
 		logrus.Info("No variants.yaml, starting single build job...")
+
 		if err := RunSingleJob(o, "build", uploaded, tag, getExtraSubs(o)); err != nil {
 			return []error{err}
 		}
+
 		return nil
 	}
 
@@ -332,72 +338,98 @@ func RunBuildJobs(o *Options) []error {
 
 	w := sync.WaitGroup{}
 	w.Add(len(vs))
+
 	var jobErrors []error
+
 	extraSubs := getExtraSubs(o)
+
 	for k, v := range vs {
 		go func(job string, vc map[string]string) {
 			defer w.Done()
+
 			logrus.Infof("Starting job %q...", job)
+
 			if err := RunSingleJob(o, job, uploaded, tag, mergeMaps(extraSubs, vc)); err != nil {
 				logrus.Infof("Job %q failed: %v", job, err)
-				jobErrors = append(jobErrors, errors.Wrapf(err, "job %q failed", job))
+				jobErrors = append(jobErrors, fmt.Errorf("job %q failed: %w", job, err))
 			} else {
 				logrus.Infof("Job %q completed", job)
 			}
 		}(k, v)
 	}
+
 	w.Wait()
+
 	return jobErrors
 }
 
 func mergeMaps(maps ...map[string]string) map[string]string {
 	out := map[string]string{}
+
 	for _, m := range maps {
-		for k, v := range m {
-			out[k] = v
-		}
+		maps0.Copy(out, m)
 	}
+
 	return out
 }
 
 func ListJobs(project string, lastJobs int64) error {
 	ctx := context.Background()
-	opts := option.WithCredentialsFile("")
 
-	service, err := cloudbuild.NewService(ctx, opts)
+	service, err := cloudbuild.NewService(ctx)
 	if err != nil {
-		return errors.Wrap(err, "failed to fetching gcloud credentials... try running \"gcloud auth application-default login\"")
+		return fmt.Errorf("failed to fetching gcloud credentials... try running \"gcloud auth application-default login\": %w", err)
 	}
 
 	req, err := service.Projects.Builds.List(project).PageSize(lastJobs).Do()
 	if err != nil {
-		return errors.Wrap(err, "failed to listing the builds")
+		return fmt.Errorf("failed to listing the builds: %w", err)
 	}
 
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Start Time", "Finish Time", "Status", "Console Logs"})
+	table := helpers.NewTableWriterWithDefaultsAndHeader(os.Stdout, []string{"Start Time", "Finish Time", "Status", "Console Logs"})
 
 	for _, build := range req.Builds {
-		table.Append([]string{strings.TrimSpace(build.StartTime), strings.TrimSpace(build.FinishTime), strings.TrimSpace(build.Status), strings.TrimSpace(build.LogUrl)})
+		_ = table.Append([]string{strings.TrimSpace(build.StartTime), strings.TrimSpace(build.FinishTime), strings.TrimSpace(build.Status), strings.TrimSpace(build.LogUrl)})
 	}
-	table.Render()
+
+	_ = table.Render()
 
 	return nil
 }
 
 func GetJobsByTag(project, tagsFilter string) ([]*cloudbuild.Build, error) {
 	ctx := context.Background()
-	opts := option.WithCredentialsFile("")
 
-	service, err := cloudbuild.NewService(ctx, opts)
+	service, err := cloudbuild.NewService(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to fetching gcloud credentials... try running \"gcloud auth application-default login\"")
+		return nil, fmt.Errorf("failed to fetching gcloud credentials... try running \"gcloud auth application-default login\": %w", err)
 	}
 
-	req, err := service.Projects.Builds.List(project).Filter(tagsFilter).PageSize(50).Do()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to listing the builds")
+	parent := fmt.Sprintf("projects/%s/locations/us-central1", project)
+
+	var allBuilds []*cloudbuild.Build
+
+	pageToken := ""
+
+	for {
+		call := service.Projects.Locations.Builds.List(parent).Filter(tagsFilter).PageSize(50)
+		if pageToken != "" {
+			call = call.PageToken(pageToken)
+		}
+
+		resp, err := call.Do()
+		if err != nil {
+			return nil, fmt.Errorf("failed to list the builds: %w", err)
+		}
+
+		allBuilds = append(allBuilds, resp.Builds...)
+
+		if resp.NextPageToken == "" {
+			break
+		}
+
+		pageToken = resp.NextPageToken
 	}
 
-	return req.Builds, nil
+	return allBuilds, nil
 }

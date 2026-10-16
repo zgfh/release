@@ -14,16 +14,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -e
-set -u
+set -o errexit
+set -o nounset
 set -o pipefail
 
 RELEASE_TOOLS=(
-  blocking-testgrid-tests
-  gh2gcs
-  kubepkg
   krel
   schedule-builder
+  publish-release
+  release-notes
 )
 
 setup_env() {
@@ -33,6 +32,7 @@ setup_env() {
     if [ -n "${GOBIN:-}" ]; then
       export RELEASE_TOOL_BIN="${GOBIN}"
     else
+      GOPATH=$(go env GOPATH)
       export RELEASE_TOOL_BIN="${GOPATH}/bin"
     fi
   fi
@@ -49,36 +49,14 @@ compile() {
   echo "${tool} compiled & installed"
 }
 
-check_deps() {
-  echo "Checking dependencies..."
-
-  compile github.com/psampaz/go-mod-outdated
-
-  local gmo_args=( '-update' '-direct' )
-  if [ -n "${FAIL_ON_OUTDATED:-}" ]; then
-    gmo_args+=( '-ci' )
-  fi
-
-  go list -u -m -json all | go-mod-outdated "${gmo_args[@]}"
-}
-
 compile_with_flags() {
-  local git_tree_state
   local pkg
   local tool="$1"
 
-  git_tree_state=dirty
-  pkg=k8s.io/release/pkg/version
+  pkg=sigs.k8s.io/release-utils/version
 
-  if git_status=$(git status --porcelain --untracked=no 2>/dev/null) && [[ -z "${git_status}" ]]; then
-    git_tree_state=clean
-  fi
-
-  go build -v -ldflags "-s -w \
-    -X $pkg.buildDate=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
-    -X $pkg.gitCommit=$(git rev-parse HEAD) \
-    -X $pkg.gitTreeState=$git_tree_state \
-    -X $pkg.gitVersion=$(git describe --abbrev=0)" \
+  go build -v -trimpath -ldflags "-s -w \
+    -X $pkg.gitVersion=$(git describe --tags --abbrev=0 || echo unknown)" \
     -o "$RELEASE_TOOL_BIN/$tool" "./cmd/$tool" \
     || return 1
 
@@ -89,11 +67,14 @@ main() {
   cd "$(dirname "${BASH_SOURCE[0]}")"
 
   setup_env
-  check_deps
 
   if [ $# -gt 0 ]; then
     for tool in "$@"; do
-      compile_with_flags "${tool}"
+      if [[ ${tool} =~ github.com\/ ]]; then
+        compile "${tool}"
+      else
+        compile_with_flags "${tool}"
+      fi
     done
   else
     for tool in "${RELEASE_TOOLS[@]}"; do

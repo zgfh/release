@@ -1,135 +1,182 @@
 ---
+version: "2"
 run:
   concurrency: 6
-  deadline: 5m
-issues:
-  exclude-rules:
-    # counterfeiter fakes are usually named 'fake_<something>.go'
-    - path: fake_.*\.go
-      linters:
-        - gocritic
-        - golint
-        - dupl
 linters:
-  disable-all: true
+  default: none
   enable:
+    - arangolint
+    - asasalint
+    - asciicheck
+    - bidichk
     - bodyclose
-    - deadcode
-    - depguard
+    - canonicalheader
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - decorder
     - dogsled
     - dupl
+    - dupword
+    - durationcheck
+    - embeddedstructfieldcheck
     - errcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - exhaustive
+    - exptostd
+    - fatcontext
+    - forcetypeassert
+    - funcorder
+    - ginkgolinter
+    - gocheckcompilerdirectives
+    - gochecksumtype
     - goconst
     - gocritic
     - gocyclo
+    - godot
     - godox
-    - gofmt
-    - goimports
-    - golint
+    - goheader
+    - gomoddirectives
+    - gomodguard_v2
     - goprintffuncname
-    - gosimple
+    - gosec
+    - gosmopolitan
     - govet
+    - grouper
+    - iface
+    - importas
     - ineffassign
-    - interfacer
-    - maligned
+    - interfacebloat
+    - intrange
+    - iotamixing
+    - ireturn
+    - loggercheck
+    - maintidx
+    - makezero
+    - mirror
     - misspell
+    - modernize
+    - musttag
     - nakedret
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - nlreturn
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - perfsprint
     - prealloc
+    - predeclared
+    - promlinter
+    - protogetter
+    - reassign
+    - recvcheck
+    - revive
     - rowserrcheck
+    - sloglint
+    - spancheck
+    - sqlclosecheck
     - staticcheck
-    - structcheck
-    - stylecheck
-    - typecheck
+    - tagalign
+    - testableexamples
+    - testifylint
+    - tparallel
     - unconvert
     - unparam
+    - unqueryvet
     - unused
-    - varcheck
+    - usestdlibvars
+    - usetesting
+    - wastedassign
     - whitespace
+    - wsl_v5
+    - zerologlint
+    # - cyclop
+    # - depguard
+    # - err113
+    # - exhaustruct
+    # - forbidigo
     # - funlen
     # - gochecknoglobals
     # - gochecknoinits
     # - gocognit
-    # - gomnd
-    # - gosec
+    # - godoclint
+    # - inamedparam
     # - lll
-    # - scopelint
-    # - wsl
-linters-settings:
-  godox:
-    keywords:
-      - BUG
-      - FIXME
-      - HACK
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
-  gocritic:
-    enabled-checks:
-      # Diagnostic
-      - appendAssign
-      - argOrder
-      - badCond
-      - caseOrder
-      - codegenComment
-      - commentedOutCode
-      - deprecatedComment
-      - dupArg
-      - dupBranchBody
-      - dupCase
-      - dupSubExpr
-      - exitAfterDefer
-      - flagDeref
-      - flagName
-      - nilValReturn
-      - offBy1
-      - sloppyReassign
-      - weakCond
-      - octalLiteral
-
-      # Performance
-      - appendCombine
-      - equalFold
-      - hugeParam
-      - indexAlloc
-      - rangeExprCopy
-      - rangeValCopy
-
-      # Style
-      - assignOp
-      - boolExprSimplify
-      - captLocal
-      - commentFormatting
-      - commentedOutImport
-      - defaultCaseOrder
-      - docStub
-      - elseif
-      - emptyFallthrough
-      - emptyStringTest
-      - hexLiteral
-      - methodExprCall
-      - regexpMust
-      - singleCaseSwitch
-      - sloppyLen
-      - stringXbytes
-      - switchTrue
-      - typeAssertChain
-      - typeSwitchVar
-      - underef
-      - unlabelStmt
-      - unlambda
-      - unslice
-      - valSwap
-      - wrapperFunc
-      - yodaStyleExpr
-      # - ifElseChain
-
-      # Opinionated
-      - builtinShadow
-      - importShadow
-      - initClause
-      - nestingReduce
-      - paramTypeCombine
-      - ptrToRefParam
-      - typeUnparen
-      - unnamedResult
-      - unnecessaryBlock
+    # - mnd
+    # - nestif
+    # - noinlineerr
+    # - nonamedreturns
+    # - paralleltest
+    # - tagliatelle
+    # - testpackage
+    # - thelper
+    # - varnamelen
+    # - wrapcheck
+  settings:
+    gocritic:
+      enable-all: true
+    goconst:
+      ignore-tests: true
+    gocyclo:
+      min-complexity: 40
+    godox:
+      keywords:
+        - BUG
+        - FIXME
+        - HACK
+    revive:
+      rules:
+        - name: unused-parameter
+          disabled: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - staticcheck
+        text: "SA1019: intoto.Subject is deprecated"
+      - linters:
+          - ireturn
+        path: pkg/notes/options/options.go
+        text: "Client returns interface"
+      - linters:
+          - nolintlint
+        text: "directive .* is unused for linter \"ireturn\""
+      - linters:
+          - nolintlint
+        text: "directive .* is unused for linter \"gosec\""
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(k8s.io)
+        - prefix(sigs.k8s.io)
+        - localmodule
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

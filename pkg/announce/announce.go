@@ -17,18 +17,15 @@ limitations under the License.
 package announce
 
 import (
+	"errors"
 	"fmt"
-	"io/ioutil"
 	"path/filepath"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
-const (
-	announcementFile = "announcement.html"
-	subjectFile      = "announcement-subject.txt"
-)
+// AnnouncementFile is the default announcement HTML file.
+const AnnouncementFile = "announcement.html"
 
 const branchAnnouncement = `Kubernetes Community,
 <p>
@@ -39,13 +36,13 @@ shortly. The <a href=https://git.k8s.io/community/contributors/devel/sig-release
 Guide</A> has some general guidance on how things will proceed.
 <p>
 Announced by your
-<a href=https://git.k8s.io/sig-release/release-managers.md>Kubernetes Release
+<a href=https://git.k8s.io/website/content/en/releases/release-managers.md>Kubernetes Release
 Managers</A>.
 `
 
 const releaseAnnouncement = `Kubernetes Community,
 <p>
-Kubernetes %s has been built and pushed.
+Kubernetes <b>%s</b> has been built and pushed using Golang version <b>%s</b>.
 <p>
 The release notes have been updated in
 <a href=https://git.k8s.io/kubernetes/%s>%s</a>, with a pointer to them on
@@ -60,70 +57,99 @@ Contributors, the
 %s release notes and you may edit now as needed.
 <p><br><br>
 Published by your
-<a href=https://git.k8s.io/sig-release/release-managers.md>Kubernetes Release
+<a href=https://git.k8s.io/website/content/en/releases/release-managers.md>Kubernetes Release
 Managers</a>.
 `
 
-func CreateForBranch(opts *Options) error {
+type Announce struct {
+	impl
+
+	options *Options
+}
+
+// NewAnnounce returns a new Announce instance.
+func NewAnnounce(opts *Options) *Announce {
+	return &Announce{
+		impl:    &defaultImpl{},
+		options: opts,
+	}
+}
+
+// SetImplementation sets the implementation to handle file operations.
+func (a *Announce) SetImplementation(i impl) {
+	a.impl = i
+}
+
+func (a *Announce) CreateForBranch() error {
 	logrus.Infof(
 		"Creating %s branch announcement in %s",
-		opts.branch, opts.workDir,
+		a.options.branch, a.options.workDir,
 	)
 
-	if err := create(
-		opts.workDir,
-		fmt.Sprintf("Kubernetes %s branch has been created", opts.branch),
-		fmt.Sprintf(branchAnnouncement, opts.branch),
+	if err := a.Create(
+		a.options.workDir,
+		fmt.Sprintf(branchAnnouncement, a.options.branch),
 	); err != nil {
-		return errors.Wrap(err, "creating branch announcement")
+		return fmt.Errorf("creating branch announcement: %w", err)
 	}
 
 	// TODO: When we create a new branch, we notify the publishing-bot folks by
 	// creating an issue for them (see anago)
 
 	logrus.Infof("Branch announcement created")
+
 	return nil
 }
 
-func CreateForRelease(opts *Options) error {
-	logrus.Infof("Creating %s announcement in %s", opts.tag, opts.workDir)
+func (a *Announce) CreateForRelease() error {
+	logrus.Infof("Creating %s announcement in %s", a.options.tag, a.options.workDir)
 
-	if err := create(
-		opts.workDir,
-		fmt.Sprintf("Kubernetes %s is live!", opts.tag),
+	changelog := ""
+
+	// Read the changelog from the specified file if we got one
+	if a.options.changelogFile != "" {
+		changelogData, err := a.ReadChangelogFile(a.options.changelogFile)
+		if err != nil {
+			return fmt.Errorf("reading changelog html file: %w", err)
+		}
+
+		if len(changelogData) == 0 {
+			return fmt.Errorf("verifying that changelog html file '%s' is not empty", a.options.changelogFile)
+		}
+
+		changelog = string(changelogData)
+	}
+
+	// ... unless it is overridden by passing the HTML directly
+	if a.options.changelogHTML != "" {
+		changelog = a.options.changelogHTML
+	}
+
+	logrus.Infof("Trying to get the Go version used to build %s...", a.options.tag)
+
+	goVersion, err := a.GetGoVersion(a.options.tag)
+	if err != nil {
+		return err
+	}
+
+	if goVersion == "" {
+		return errors.New("verifying Go version is not empty")
+	}
+
+	logrus.Infof("Found the following Go version: %s", goVersion)
+
+	if err := a.Create(
+		a.options.workDir,
 		fmt.Sprintf(releaseAnnouncement,
-			opts.tag, opts.changelogPath, filepath.Base(opts.changelogPath),
-			opts.tag, opts.changelogHTML, opts.changelogPath,
-			filepath.Base(opts.changelogPath), opts.tag,
+			a.options.tag, goVersion, a.options.changelogPath,
+			filepath.Base(a.options.changelogPath), a.options.tag, changelog,
+			a.options.changelogPath, filepath.Base(a.options.changelogPath), a.options.tag,
 		),
 	); err != nil {
-		return errors.Wrap(err, "creating release announcement")
+		return fmt.Errorf("creating release announcement: %w", err)
 	}
 
 	logrus.Infof("Release announcement created")
-	return nil
-}
-
-func create(workDir, subject, message string) error {
-	subjectFile := filepath.Join(workDir, subjectFile)
-	if err := ioutil.WriteFile(
-		subjectFile, []byte(subject), 0o755,
-	); err != nil {
-		return errors.Wrapf(
-			err, "writing subject to file %s", subjectFile,
-		)
-	}
-	logrus.Debugf("Wrote file %s", subjectFile)
-
-	announcementFile := filepath.Join(workDir, announcementFile)
-	if err := ioutil.WriteFile(
-		announcementFile, []byte(message), 0o755,
-	); err != nil {
-		return errors.Wrapf(
-			err, "writing announcement to file %s", announcementFile,
-		)
-	}
-	logrus.Debugf("Wrote file %s", announcementFile)
 
 	return nil
 }

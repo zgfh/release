@@ -18,7 +18,6 @@ package options
 
 import (
 	"errors"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,14 +29,14 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
-	"k8s.io/release/pkg/command"
-	"k8s.io/release/pkg/github"
-
-	kgit "k8s.io/release/pkg/git"
+	kgit "sigs.k8s.io/release-sdk/git"
+	"sigs.k8s.io/release-sdk/github"
+	"sigs.k8s.io/release-utils/command"
 )
 
 type testOptions struct {
 	*Options
+
 	testRepo *testRepo
 }
 
@@ -58,7 +57,8 @@ type testRepo struct {
 
 func newTestOptions(t *testing.T) *testOptions {
 	testRepo := newTestRepo(t)
-	require.Nil(t, os.Setenv(github.TokenEnvKey, "token"))
+	t.Setenv(github.TokenEnvKey, "token")
+
 	return &testOptions{
 		Options: &Options{
 			DiscoverMode: RevisionDiscoveryModeNONE,
@@ -87,38 +87,37 @@ func newTestOptions(t *testing.T) *testOptions {
 // |
 // |     Second commit
 // |
-// * commit `firstCommit` (tag: `firstTagName`, origin/master, origin/HEAD, master)
-//   Author: John Doe <john@doe.org>
 //
-//       First commit
+//   - commit `firstCommit` (tag: `firstTagName`, origin/master, origin/HEAD, master)
+//     Author: John Doe <john@doe.org>
 //
+//     First commit
 func newTestRepo(t *testing.T) *testRepo {
 	// Setup the bare repo as base
-	bareTempDir, err := ioutil.TempDir("", "k8s-test-bare-")
-	require.Nil(t, err)
+	bareTempDir := t.TempDir()
 
 	bareRepo, err := git.PlainInit(bareTempDir, true)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.NotNil(t, bareRepo)
 
 	// Clone from the bare to be able to add our test data
-	cloneTempDir, err := ioutil.TempDir("", "k8s-test-clone-")
-	require.Nil(t, err)
+	cloneTempDir := t.TempDir()
 	cloneRepo, err := git.PlainInit(cloneTempDir, false)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	// Add the test data set
 	const testFileName = "test-file"
-	require.Nil(t, ioutil.WriteFile(
+
+	require.NoError(t, os.WriteFile(
 		filepath.Join(cloneTempDir, testFileName),
 		[]byte("test-content"),
-		os.FileMode(0644),
+		os.FileMode(0o644),
 	))
 
 	worktree, err := cloneRepo.Worktree()
-	require.Nil(t, err)
+	require.NoError(t, err)
 	_, err = worktree.Add(testFileName)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	author := &object.Signature{
 		Name:  "John Doe",
@@ -128,7 +127,7 @@ func newTestRepo(t *testing.T) *testRepo {
 	firstCommit, err := worktree.Commit("First commit", &git.CommitOptions{
 		Author: author,
 	})
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	firstTagName := "v1.17.0"
 	firstTagRef, err := cloneRepo.CreateTag(firstTagName, firstCommit,
@@ -137,28 +136,30 @@ func newTestRepo(t *testing.T) *testRepo {
 			Message: firstTagName,
 		},
 	)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	// Create a test branch and a test commit on top
 	branchName := "release-1.17"
-	require.Nil(t, command.NewWithWorkDir(
+	require.NoError(t, command.NewWithWorkDir(
 		cloneTempDir, "git", "checkout", "-b", branchName,
 	).RunSuccess())
 
 	const branchTestFileName = "branch-test-file"
-	require.Nil(t, ioutil.WriteFile(
+
+	require.NoError(t, os.WriteFile(
 		filepath.Join(cloneTempDir, branchTestFileName),
 		[]byte("test-content"),
-		os.FileMode(0644),
+		os.FileMode(0o644),
 	))
+
 	_, err = worktree.Add(branchTestFileName)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	firstBranchCommit, err := worktree.Commit("Second commit", &git.CommitOptions{
 		Author: author,
 		All:    true,
 	})
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	secondTagName := "v0.1.1"
 	secondTagRef, err := cloneRepo.CreateTag(secondTagName, firstBranchCommit,
@@ -167,22 +168,24 @@ func newTestRepo(t *testing.T) *testRepo {
 			Message: firstTagName,
 		},
 	)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	const secondBranchTestFileName = "branch-test-file-2"
-	require.Nil(t, ioutil.WriteFile(
+
+	require.NoError(t, os.WriteFile(
 		filepath.Join(cloneTempDir, secondBranchTestFileName),
 		[]byte("test-content"),
-		os.FileMode(0644),
+		os.FileMode(0o644),
 	))
+
 	_, err = worktree.Add(secondBranchTestFileName)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	secondBranchCommit, err := worktree.Commit("Third commit", &git.CommitOptions{
 		Author: author,
 		All:    true,
 	})
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	thirdTagName := "v0.1.2"
 	thirdTagRef, err := cloneRepo.CreateTag(thirdTagName, secondBranchCommit,
@@ -191,25 +194,26 @@ func newTestRepo(t *testing.T) *testRepo {
 			Message: firstTagName,
 		},
 	)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	// Push the test content into the bare repo
 	_, err = cloneRepo.CreateRemote(&config.RemoteConfig{
 		Name: kgit.DefaultRemote,
 		URLs: []string{bareTempDir},
 	})
-	require.Nil(t, err)
-	require.Nil(t, cloneRepo.Push(&git.PushOptions{
+	require.NoError(t, err)
+	require.NoError(t, cloneRepo.Push(&git.PushOptions{
 		RemoteName: "origin",
 		RefSpecs:   []config.RefSpec{"refs/*:refs/*"},
 	}))
 
-	require.Nil(t, os.RemoveAll(cloneTempDir))
+	require.NoError(t, os.RemoveAll(cloneTempDir))
 
 	// Provide a system under test inside the test repo
-	sut, err := kgit.CloneOrOpenRepo("", bareTempDir, false)
-	require.Nil(t, err)
-	require.Nil(t, command.NewWithWorkDir(
+	opts := &git.CloneOptions{}
+	sut, err := kgit.CloneOrOpenRepo("", bareTempDir, false, false, opts)
+	require.NoError(t, err)
+	require.NoError(t, command.NewWithWorkDir(
 		sut.Dir(), "git", "checkout", branchName,
 	).RunSuccess())
 
@@ -230,8 +234,8 @@ func newTestRepo(t *testing.T) *testRepo {
 }
 
 func (r *testRepo) cleanup(t *testing.T) {
-	require.Nil(t, os.RemoveAll(r.dir))
-	require.Nil(t, os.RemoveAll(r.sut.Dir()))
+	require.NoError(t, os.RemoveAll(r.dir))
+	require.NoError(t, os.RemoveAll(r.sut.Dir()))
 }
 
 func TestNew(t *testing.T) {
@@ -242,7 +246,7 @@ func TestValidateAndFinishSuccess(t *testing.T) {
 	options := newTestOptions(t)
 	defer options.testRepo.cleanup(t)
 
-	require.Nil(t, options.ValidateAndFinish())
+	require.NoError(t, options.ValidateAndFinish())
 	require.Equal(t, logrus.InfoLevel, logrus.StandardLogger().GetLevel())
 }
 
@@ -251,13 +255,13 @@ func TestValidateAndFinishSuccessDebug(t *testing.T) {
 	defer options.testRepo.cleanup(t)
 
 	options.Debug = true
-	require.Nil(t, options.ValidateAndFinish())
+	require.NoError(t, options.ValidateAndFinish())
 	require.Equal(t, logrus.DebugLevel, logrus.StandardLogger().GetLevel())
 }
 
 func TestValidateAndFinishFailureGithubTokenMissing(t *testing.T) {
 	options := &Options{}
-	require.NotNil(t, options.ValidateAndFinish())
+	require.Error(t, options.ValidateAndFinish())
 }
 
 func TestValidateAndFinishFailureStartShaAndRevWrong(t *testing.T) {
@@ -265,7 +269,7 @@ func TestValidateAndFinishFailureStartShaAndRevWrong(t *testing.T) {
 	defer options.testRepo.cleanup(t)
 
 	options.StartSHA = ""
-	require.NotNil(t, options.ValidateAndFinish())
+	require.Error(t, options.ValidateAndFinish())
 }
 
 func TestValidateAndFinishFailureEndShaAndRevWrong(t *testing.T) {
@@ -273,7 +277,7 @@ func TestValidateAndFinishFailureEndShaAndRevWrong(t *testing.T) {
 	defer options.testRepo.cleanup(t)
 
 	options.EndSHA = ""
-	require.NotNil(t, options.ValidateAndFinish())
+	require.Error(t, options.ValidateAndFinish())
 }
 
 func TestValidateAndFinishFailureClone(t *testing.T) {
@@ -287,7 +291,7 @@ func TestValidateAndFinishFailureClone(t *testing.T) {
 	options.StartSHA = ""
 	options.EndSHA = ""
 
-	require.NotNil(t, options.ValidateAndFinish())
+	require.Error(t, options.ValidateAndFinish())
 }
 
 func TestValidateAndFinishSuccessStartRev(t *testing.T) {
@@ -295,7 +299,7 @@ func TestValidateAndFinishSuccessStartRev(t *testing.T) {
 	defer options.testRepo.cleanup(t)
 
 	options.StartRev = options.testRepo.firstTagName
-	require.Nil(t, options.ValidateAndFinish())
+	require.NoError(t, options.ValidateAndFinish())
 }
 
 func TestValidateAndFinishFailureStartRevNotExisting(t *testing.T) {
@@ -305,7 +309,7 @@ func TestValidateAndFinishFailureStartRevNotExisting(t *testing.T) {
 	options.StartRev = "invalid"
 	options.StartSHA = ""
 
-	require.NotNil(t, options.ValidateAndFinish())
+	require.Error(t, options.ValidateAndFinish())
 }
 
 func TestValidateAndFinishSuccessEndRev(t *testing.T) {
@@ -313,7 +317,7 @@ func TestValidateAndFinishSuccessEndRev(t *testing.T) {
 	defer options.testRepo.cleanup(t)
 
 	options.EndRev = options.testRepo.firstTagName
-	require.Nil(t, options.ValidateAndFinish())
+	require.NoError(t, options.ValidateAndFinish())
 }
 
 func TestValidateAndFinishFailureEndRevNotExisting(t *testing.T) {
@@ -323,29 +327,29 @@ func TestValidateAndFinishFailureEndRevNotExisting(t *testing.T) {
 	options.EndRev = "invalid"
 	options.EndSHA = ""
 
-	require.NotNil(t, options.ValidateAndFinish())
+	require.Error(t, options.ValidateAndFinish())
 }
 
 func TestValidateAndFinishSuccessDiscoveryModeMergeBaseToLatest(t *testing.T) {
 	options := newTestOptions(t)
 	defer options.testRepo.cleanup(t)
 
-	require.Nil(t, command.NewWithWorkDir(options.testRepo.sut.Dir(),
+	require.NoError(t, command.NewWithWorkDir(options.testRepo.sut.Dir(),
 		"git", "checkout", "-b", options.testRepo.firstTagName).RunSuccess())
 
 	options.DiscoverMode = RevisionDiscoveryModeMergeBaseToLatest
-	require.Nil(t, options.ValidateAndFinish())
+	require.NoError(t, options.ValidateAndFinish())
 }
 
 func TestValidateAndFinishFailureDiscoveryModeMergeBaseToLatestNoTag(t *testing.T) {
 	options := newTestOptions(t)
 	defer options.testRepo.cleanup(t)
 
-	require.Nil(t, command.NewWithWorkDir(options.testRepo.sut.Dir(),
+	require.NoError(t, command.NewWithWorkDir(options.testRepo.sut.Dir(),
 		"git", "tag", "-d", options.testRepo.firstTagName).RunSuccess())
 
 	options.DiscoverMode = RevisionDiscoveryModeMergeBaseToLatest
-	require.NotNil(t, options.ValidateAndFinish())
+	require.Error(t, options.ValidateAndFinish())
 }
 
 func TestValidateAndFinishFailureDiscoveryModeMergeBaseToLatestClone(t *testing.T) {
@@ -356,7 +360,7 @@ func TestValidateAndFinishFailureDiscoveryModeMergeBaseToLatestClone(t *testing.
 	options.gitCloneFn = func(string, string, string, bool) (*kgit.Repo, error) {
 		return nil, errors.New("error")
 	}
-	require.NotNil(t, options.ValidateAndFinish())
+	require.Error(t, options.ValidateAndFinish())
 }
 
 func TestValidateAndFinishSuccessDiscoveryModePatchToPatch(t *testing.T) {
@@ -364,13 +368,13 @@ func TestValidateAndFinishSuccessDiscoveryModePatchToPatch(t *testing.T) {
 	defer options.testRepo.cleanup(t)
 
 	nextMinorTag := "v1.17.1"
-	require.Nil(t, command.NewWithWorkDir(
+	require.NoError(t, command.NewWithWorkDir(
 		options.testRepo.sut.Dir(), "git", "tag", nextMinorTag,
 	).RunSuccess())
 
 	options.Branch = options.testRepo.branchName
 	options.DiscoverMode = RevisionDiscoveryModePatchToPatch
-	require.Nil(t, options.ValidateAndFinish())
+	require.NoError(t, options.ValidateAndFinish())
 }
 
 func TestValidateAndFinishFailureDiscoveryModePatchToPatchNoBranch(t *testing.T) {
@@ -378,7 +382,7 @@ func TestValidateAndFinishFailureDiscoveryModePatchToPatchNoBranch(t *testing.T)
 	defer options.testRepo.cleanup(t)
 
 	options.DiscoverMode = RevisionDiscoveryModePatchToPatch
-	require.NotNil(t, options.ValidateAndFinish())
+	require.Error(t, options.ValidateAndFinish())
 }
 
 func TestValidateAndFinishFailureFormat(t *testing.T) {
@@ -389,7 +393,7 @@ func TestValidateAndFinishFailureFormat(t *testing.T) {
 	options.Format = "wrong"
 
 	// When
-	require.NotNil(t, options.ValidateAndFinish())
+	require.Error(t, options.ValidateAndFinish())
 }
 
 func TestValidateAndFinishFailureGoTemplate(t *testing.T) {
@@ -400,5 +404,5 @@ func TestValidateAndFinishFailureGoTemplate(t *testing.T) {
 	options.GoTemplate = "wrong"
 
 	// When
-	require.NotNil(t, options.ValidateAndFinish())
+	require.Error(t, options.ValidateAndFinish())
 }

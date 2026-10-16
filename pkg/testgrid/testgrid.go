@@ -17,25 +17,24 @@ limitations under the License.
 package testgrid
 
 import (
-	"io/ioutil"
+	"fmt"
 	"os"
 
 	"github.com/GoogleCloudPlatform/testgrid/config"
 	pb "github.com/GoogleCloudPlatform/testgrid/pb/config"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"k8s.io/release/pkg/http"
+	"k8s.io/release/pkg/consts"
 )
 
 const testgridConfigURL = "https://storage.googleapis.com/k8s-testgrid/config"
 
-// TestGrid is the default test grid client
+// TestGrid is the default test grid client.
 type TestGrid struct {
 	client Client
 }
 
-// New creates a new TestGrid
+// New creates a new TestGrid.
 func New() *TestGrid {
 	return &TestGrid{
 		&testGridClient{},
@@ -44,37 +43,39 @@ func New() *TestGrid {
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
 //counterfeiter:generate . Client
+//go:generate /usr/bin/env bash -c "cat ../../hack/boilerplate/boilerplate.generatego.txt testgridfakes/fake_client.go > testgridfakes/_fake_client.go && mv testgridfakes/_fake_client.go testgridfakes/fake_client.go"
 type Client interface {
-	GetURLResponse(string, bool) (string, error)
+	GetURLResponse(string) ([]byte, error)
 }
 
 type testGridClient struct{}
 
-func (t *testGridClient) GetURLResponse(url string, trim bool) (string, error) {
-	return http.GetURLResponse(url, trim)
+func (t *testGridClient) GetURLResponse(url string) ([]byte, error) {
+	return consts.NewHTTPAgent().Get(url)
 }
 
-// SetClient can be used to set the internal HTTP client
+// SetClient can be used to set the internal HTTP client.
 func (t *TestGrid) SetClient(client Client) {
 	t.client = client
 }
 
 // BlockingTests returns the blocking tests for the provided branch name or an
-// error if those are not available
+// error if those are not available.
 func (t *TestGrid) BlockingTests(branch string) (tests []string, err error) {
 	conf, err := t.configFromURL(testgridConfigURL)
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot get config")
+		return nil, fmt.Errorf("cannot get config: %w", err)
 	}
 
 	dashboardName := "sig-" + branch + "-blocking"
 	dashboard := config.FindDashboard(dashboardName, conf)
+
 	if dashboard == nil {
-		return nil, errors.Errorf("dashboard %s not found", dashboardName)
+		return nil, fmt.Errorf("dashboard %s not found", dashboardName)
 	}
 
-	for _, tab := range dashboard.DashboardTab {
-		tests = append(tests, tab.TestGroupName)
+	for _, tab := range dashboard.GetDashboardTab() {
+		tests = append(tests, tab.GetTestGroupName())
 	}
 
 	return tests, nil
@@ -83,23 +84,24 @@ func (t *TestGrid) BlockingTests(branch string) (tests []string, err error) {
 func (t *TestGrid) configFromURL(url string) (cfg *pb.Configuration, err error) {
 	logrus.Info("Retrieving testgrid configuration")
 
-	tmpFile, err := ioutil.TempFile("", "testgrid-jobs-")
+	tmpFile, err := os.CreateTemp("", "testgrid-jobs-")
 	if err != nil {
 		return nil, err
 	}
+
 	defer func() {
 		if err == nil {
-			err = os.Remove(tmpFile.Name())
+			err = os.Remove(tmpFile.Name()) //nolint:gosec // G703 - temp file path is safe
 		}
 	}()
 
-	response, err := t.client.GetURLResponse(url, false)
+	response, err := t.client.GetURLResponse(url)
 	if err != nil {
-		return nil, errors.Wrap(err, "retrieving remote content")
+		return nil, fmt.Errorf("retrieving remote content: %w", err)
 	}
 
-	if _, err := tmpFile.WriteString(response); err != nil {
-		return nil, errors.Wrap(err, "writing response to file")
+	if _, err := tmpFile.Write(response); err != nil {
+		return nil, fmt.Errorf("writing response to file: %w", err)
 	}
 
 	return config.ReadPath(tmpFile.Name())

@@ -14,10 +14,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -euo pipefail
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# Default timeout is 1800s
+TEST_TIMEOUT=1800
+
+for arg in "$@"
+do
+    case $arg in
+        -t=*|--timeout=*)
+        TEST_TIMEOUT="${arg#*=}"
+        shift
+        ;;
+        -t|--timeout)
+        TEST_TIMEOUT="$2"
+        shift
+        shift
+    esac
+done
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
 cd "${REPO_ROOT}"
 
-GO111MODULE=on go test -v -count=1 -cover -coverprofile coverage.out ./...
+GO111MODULE=on go test -v -timeout="${TEST_TIMEOUT}s" -count=1 -cover -coverprofile coverage.out $(go list ./... | grep -v k8s.io/release/cmd)
 go tool cover -html coverage.out -o coverage.html

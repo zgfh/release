@@ -75,21 +75,23 @@ const expected = `## Dependencies
 func TestDependencyChangesSuccess(t *testing.T) {
 	moDiff := &notesfakes.FakeMoDiff{}
 	moDiff.RunReturns(expected, nil)
+
 	sut := notes.NewDependencies()
 	sut.SetMoDiff(moDiff)
 
 	res, err := sut.Changes("v1.17.0", "v1.18.0")
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.Equal(t, expected, res)
 }
 
 func TestDependencyChangesFailure(t *testing.T) {
 	moDiff := &notesfakes.FakeMoDiff{}
 	moDiff.RunReturns("", errors.New(""))
+
 	sut := notes.NewDependencies()
 	sut.SetMoDiff(moDiff)
 
 	res, err := sut.Changes("v1.17.0", "v1.18.0")
-	require.NotNil(t, err)
+	require.Error(t, err)
 	require.Empty(t, res)
 }

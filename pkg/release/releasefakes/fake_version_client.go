@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -47,15 +47,16 @@ func (fake *FakeVersionClient) GetURLResponse(arg1 string) (string, error) {
 	fake.getURLResponseArgsForCall = append(fake.getURLResponseArgsForCall, struct {
 		arg1 string
 	}{arg1})
+	stub := fake.GetURLResponseStub
+	fakeReturns := fake.getURLResponseReturns
 	fake.recordInvocation("GetURLResponse", []interface{}{arg1})
 	fake.getURLResponseMutex.Unlock()
-	if fake.GetURLResponseStub != nil {
-		return fake.GetURLResponseStub(arg1)
+	if stub != nil {
+		return stub(arg1)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
 	}
-	fakeReturns := fake.getURLResponseReturns
 	return fakeReturns.result1, fakeReturns.result2
 }
 
@@ -107,8 +108,6 @@ func (fake *FakeVersionClient) GetURLResponseReturnsOnCall(i int, result1 string
 func (fake *FakeVersionClient) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.getURLResponseMutex.RLock()
-	defer fake.getURLResponseMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

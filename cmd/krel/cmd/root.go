@@ -17,22 +17,27 @@ limitations under the License.
 package cmd
 
 import (
-	"os"
-	"path/filepath"
-
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	"k8s.io/release/pkg/log"
+	"sigs.k8s.io/release-utils/log"
+	"sigs.k8s.io/release-utils/version"
 )
 
 const (
 	nl = "\n"
+
+	releaseCmdUse = "release"
 )
 
-// rootCmd represents the base command when called without any subcommands
+// editorEnvs lists the environment variables consulted to find the editor
+// used for interactive edits.
+var editorEnvs = []string{"KUBE_EDITOR", "EDITOR"}
+
+// rootCmd represents the base command when called without any subcommands.
 var rootCmd = &cobra.Command{
-	Use: "krel",
+	Use:   "krel",
+	Short: "The Kubernetes Release toolbox",
 	Long: `krel - The Kubernetes Release toolbox
 
 krel is the new golang based tool for managing releases. Target of krel is to
@@ -48,8 +53,6 @@ clarifies its purpose.`,
 
 type rootOptions struct {
 	nomock   bool
-	cleanup  bool
-	repoPath string
 	logLevel string
 }
 
@@ -64,10 +67,22 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().BoolVar(&rootOpts.nomock, "nomock", false, "nomock flag")
-	rootCmd.PersistentFlags().BoolVar(&rootOpts.cleanup, "cleanup", false, "cleanup flag")
-	rootCmd.PersistentFlags().StringVar(&rootOpts.repoPath, "repo", filepath.Join(os.TempDir(), "k8s"), "the local path to the repository to be used")
-	rootCmd.PersistentFlags().StringVar(&rootOpts.logLevel, "log-level", "info", "the logging verbosity, either 'panic', 'fatal', 'error', 'warn', 'warning', 'info', 'debug' or 'trace'")
+	rootCmd.PersistentFlags().BoolVar(
+		&rootOpts.nomock,
+		"nomock",
+		false,
+		"run the command to target the production environment",
+	)
+
+	rootCmd.PersistentFlags().StringVarP(
+		&rootOpts.logLevel,
+		"log-level",
+		"l",
+		"info",
+		"the logging verbosity, either "+log.LevelNames(),
+	)
+
+	rootCmd.AddCommand(version.WithFont("slant"))
 }
 
 func initLogging(*cobra.Command, []string) error {

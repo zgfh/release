@@ -1,13 +1,13 @@
 variants:
-  cross1.15:
-    CONFIG: 'cross1.15'
-    KUBE_CROSS_VERSION: 'v1.15.0-rc.2-1'
-    SKOPEO_VERSION: 'v0.2.0'
-  cross1.14:
-    CONFIG: 'cross1.14'
-    KUBE_CROSS_VERSION: 'v1.14.7-1'
-    SKOPEO_VERSION: 'v0.2.0'
-  cross1.13:
-    CONFIG: 'cross1.13'
-    KUBE_CROSS_VERSION: 'v1.13.15-1'
-    SKOPEO_VERSION: 'v0.2.0'
+  v1.38-cross1.27-bullseye:
+    CONFIG: 'cross1.27'
+    KUBE_CROSS_VERSION: 'v1.38.0-go1.27.1-bullseye.0'
+  v1.37-cross1.26-bullseye:
+    CONFIG: 'cross1.26'
+    KUBE_CROSS_VERSION: 'v1.37.0-go1.26.8-bullseye.0'
+  v1.36-cross1.26-bullseye:
+    CONFIG: 'cross1.26'
+    KUBE_CROSS_VERSION: 'v1.36.0-go1.26.8-bullseye.0'
+  v1.35-cross1.26-bullseye:
+    CONFIG: 'cross1.26'
+    KUBE_CROSS_VERSION: 'v1.35.0-go1.26.8-bullseye.0'

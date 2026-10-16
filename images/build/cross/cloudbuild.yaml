@@ -1,45 +1,60 @@
 # See https://cloud.google.com/cloud-build/docs/build-config
-timeout: 1200s
+timeout: 3600s
 
 options:
-  substitution_option: ALLOW_LOOSE
+  substitutionOption: ALLOW_LOOSE
 
 steps:
-  - name: 'gcr.io/k8s-testimages/gcb-docker-gcloud:v20200713-e9b3d9d'
-    entrypoint: make
+  - name: 'registry.k8s.io/releng/gcb-docker-gcloud:v20260806'
+    dir: ./images/build/cross
     env:
-    - DOCKER_CLI_EXPERIMENTAL=enabled
     - TAG=$_GIT_TAG
     - PULL_BASE_REF=$_PULL_BASE_REF
     - CONFIG=$_CONFIG
+    - TYPE=$_TYPE
+    - IMAGE_VERSION=$_IMAGE_VERSION
+    - KUBERNETES_VERSION=$_KUBERNETES_VERSION
     - GO_VERSION=$_GO_VERSION
-    - KUBE_CROSS_VERSION=$_KUBE_CROSS_VERSION
+    - GO_MAJOR_VERSION=$_GO_MAJOR_VERSION
+    - OS_CODENAME=$_OS_CODENAME
+    - REVISION=$_REVISION
     - PROTOBUF_VERSION=$_PROTOBUF_VERSION
-    - ETCD_VERSION=$_ETCD_VERSION
+    - REGISTRY=$_REGISTRY
+    - PLATFORMS=$_PLATFORMS
+    # default cloudbuild has HOME=/builder/home and docker buildx is in /root/.docker/cli-plugins/docker-buildx
+    # set the home to /root explicitly to if using docker buildx
+    - HOME=/root
     args:
-    - all
+    - make 
+    - manifest
 
 substitutions:
   # _GIT_TAG will be filled with a git-based tag for the image, of the form vYYYYMMDD-hash, and
   # can be used as a substitution
   _GIT_TAG: '12345'
   _PULL_BASE_REF: 'dev'
-  _CONFIG: 'go0.0'
+  _CONFIG: 'k8s-go-major-codename'
+  _TYPE: 'default'
+  _IMAGE_VERSION: 'v0.0.0-go0.0.0-codename.0'
+  _KUBERNETES_VERSION: 'v0.0.0'
   _GO_VERSION: '0.0.0'
-  _KUBE_CROSS_VERSION: 'v0.0.0-0'
+  _GO_MAJOR_VERSION: '0.00'
+  _OS_CODENAME: 'codename'
+  _REVISION: '0'
   _PROTOBUF_VERSION: '0.0.0'
-  _ETCD_VERSION: 'v0.0.0'
+  _PLATFORMS: 'linux/amd64 linux/arm64 linux/ppc64le linux/s390x'
+  _REGISTRY: 'fake.repository/registry-name'
 
 tags:
+- 'kube-cross'
 - ${_GIT_TAG}
 - ${_PULL_BASE_REF}
 - ${_CONFIG}
+- ${_TYPE}
+- ${_KUBERNETES_VERSION}
 - ${_GO_VERSION}
-- ${_KUBE_CROSS_VERSION}
+- ${_GO_MAJOR_VERSION}
+- ${_OS_CODENAME}
+- ${_IMAGE_VERSION}
+- ${_REVISION}
 - ${_PROTOBUF_VERSION}
-- ${_ETCD_VERSION}
-
-images:
-  - 'gcr.io/$PROJECT_ID/kube-cross-amd64:$_KUBE_CROSS_VERSION'
-  - 'gcr.io/$PROJECT_ID/kube-cross-amd64:$_GIT_TAG-$_CONFIG'
-  - 'gcr.io/$PROJECT_ID/kube-cross-amd64:latest-$_CONFIG'

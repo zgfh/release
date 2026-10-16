@@ -22,11 +22,12 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
+	"sigs.k8s.io/release-utils/log"
+
 	"k8s.io/release/pkg/gcp/build"
-	"k8s.io/release/pkg/log"
 )
 
-// rootCmd represents the base command when called without any subcommands
+// rootCmd represents the base command when called without any subcommands.
 var rootCmd = &cobra.Command{
 	Use:               "gcbuilder",
 	Short:             "gcbuilder",
@@ -66,7 +67,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&buildOpts.NoSource, "no-source", false, "If true, no source will be uploaded with this build.")
 	rootCmd.PersistentFlags().StringVar(&buildOpts.Variant, "variant", "", "If specified, build only the given variant. An error if no variants are defined.")
 	rootCmd.PersistentFlags().StringVar(&buildOpts.EnvPassthrough, "env-passthrough", "", "Comma-separated list of specified environment variables to be passed to GCB as substitutions with an _ prefix. If the variable doesn't exist, the substitution will exist but be empty.")
-	rootCmd.PersistentFlags().StringVar(&rootOpts.logLevel, "log-level", "info", "the logging verbosity, either 'panic', 'fatal', 'error', 'warn', 'warning', 'info', 'debug' or 'trace'")
+	rootCmd.PersistentFlags().StringVar(&rootOpts.logLevel, "log-level", "info", "the logging verbosity, either "+log.LevelNames())
 
 	buildOpts.ConfigDir = strings.TrimSuffix(buildOpts.ConfigDir, "/")
 }
@@ -81,6 +82,7 @@ func run() error {
 	if len(buildErrors) != 0 {
 		logrus.Fatalf("Failed to run some build jobs: %v", buildErrors)
 	}
+
 	logrus.Info("Finished.")
 
 	return nil
